@@ -28,6 +28,7 @@ const COUNTRIES = [
   { code: "EC", label: "EC Ecuador" },
   { code: "UY", label: "UY Uruguai" },
   { code: "PE", label: "🇵🇪 Peru" },
+  { code: "BO", label: "bo Bolivia" },
   { code: "PC", label: "pc Costa Rica" }
 ];
 
@@ -41,8 +42,6 @@ function getMonthLabel(startDate, idx) {
 }
 
 // Formata a data para a planilha no modelo unpivot desejado (ex: fev-27)
-// O auto-parse incorreto do Excel (mar-26 → 26/03/2026) é neutralizado pelo
-// tipo 's' + formato '@' forçados nas células de mês no exportXLSX
 function formatMonthYear(startDate, idx) {
   if (!startDate) return "";
   const [year, month] = startDate.split("-").map(Number);
@@ -63,6 +62,8 @@ function createInitialState() {
     salesStartDateBySku: { [firstSkuId]: "" },
     salesMonthsBySku: { [firstSkuId]: emptyMonthValues() },
     om1Target: "",
+    mavDates: {}, // Modificado para armazenar { [skuId]: { [countryCode]: date } }
+    solDates: {}, // Modificado para armazenar { [skuId]: { [countryCode]: date } }
   };
 }
 
@@ -83,7 +84,7 @@ function ensureSkuStartDates(startDateBySku, skus) {
   return updated;
 }
 
-const STEPS = ["Projeto", "SKUs", "Produção", "Vendas", "OM1 Target", "Revisão"];
+const STEPS = ["Projeto", "SKUs", "Produção", "Vendas", "OM1 Target", "Datas", "Revisão"];
 
 // ─── CONFIGURAÇÃO — cole aqui a URL do seu Google Apps Script ───────────────
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwc2yACEAkMD5T4XOWLtutiHaPDPEwDFa8K8cMfTOyWmIkQmchepOmM7NxmAArORjJX/exec";
@@ -121,6 +122,21 @@ function ProjectDataCollector() {
     });
   };
 
+  // Atualiza a data MAV ou SOL de um SKU e País específico
+  const updateCountryDate = (type, skuId, countryCode, value) => {
+    const key = type === "mav" ? "mavDates" : "solDates";
+    setForm(f => {
+      const skuDates = f[key][skuId] || {};
+      return {
+        ...f,
+        [key]: {
+          ...f[key],
+          [skuId]: { ...skuDates, [countryCode]: value }
+        }
+      };
+    });
+  };
+
   const addSku = () =>
     setForm(f => {
       const newSku = { id: Date.now(), value: "", countries: [] };
@@ -140,10 +156,14 @@ function ProjectDataCollector() {
       const newSales = { ...f.salesMonthsBySku };
       const newProdDates = { ...f.productionStartDateBySku };
       const newSalesDates = { ...f.salesStartDateBySku };
+      const newMavDates = { ...f.mavDates };
+      const newSolDates = { ...f.solDates };
       delete newProd[id];
       delete newSales[id];
       delete newProdDates[id];
       delete newSalesDates[id];
+      delete newMavDates[id];
+      delete newSolDates[id];
       return {
         ...f,
         skus: f.skus.filter(s => s.id !== id),
@@ -151,6 +171,8 @@ function ProjectDataCollector() {
         salesMonthsBySku: newSales,
         productionStartDateBySku: newProdDates,
         salesStartDateBySku: newSalesDates,
+        mavDates: newMavDates,
+        solDates: newSolDates,
       };
     });
 
@@ -195,7 +217,7 @@ function ProjectDataCollector() {
             color: selected.length > 0 ? "var(--color-text-info)" : undefined,
             borderColor: selected.length > 0 ? "var(--color-border-info)" : undefined,
           }}
-          title="Selecionar países" // Fazer bloqueio para a falta do preenchimento dos paises 
+          title="Selecionar países"
         >
           <i className="ti ti-flag" aria-hidden="true" style={{ fontSize: 14 }}></i>
           {selected.length === 0
@@ -288,10 +310,10 @@ function ProjectDataCollector() {
       return validSkus.every(s => form.salesStartDateBySku[s.id]);
     }
     if (step === 4) return form.om1Target !== "";
+    if (step === 5) return true; // Datas MAV/SOL são opcionais
     return true;
   };
 
-  // Retorna o SKU ativo para o plano (garante fallback pro primeiro SKU válido)
   const getActiveSkuId = (activeId, type) => {
     const validSkus = form.skus.filter(s => s.value.trim());
     if (!validSkus.length) return null;
@@ -304,7 +326,6 @@ function ProjectDataCollector() {
     setSaving(true);
     setSaveError(false);
 
-    // Monta as linhas no formato unpivot — igual ao export XLSX
     const rows = [];
     const validSkus = project.skus.filter(s => s.value.trim());
     const skusToProcess = validSkus.length > 0 ? validSkus : [{ id: "__default__", value: "", countries: [] }];
@@ -314,19 +335,30 @@ function ProjectDataCollector() {
       const salesMonths = project.salesMonthsBySku[sku.id] || emptyMonthValues();
       const prodStartDate = (project.productionStartDateBySku && project.productionStartDateBySku[sku.id]) || "";
       const salesStartDate = (project.salesStartDateBySku && project.salesStartDateBySku[sku.id]) || "";
-      for (let i = 0; i < 12; i++) {
-        rows.push([
-          project.projectName,
-          sku.value,
-          formatMonthYear(prodStartDate, i),
-          prodMonths[i] ? Number(prodMonths[i]) : 0,
-          formatMonthYear(salesStartDate, i),
-          salesMonths[i] ? Number(salesMonths[i]) : 0,
-          project.om1Target ? Number(project.om1Target) / 100 : "",
-          new Date().toLocaleDateString("pt-BR"),
-          (sku.countries || []).join(", ")
-        ]);
-      }
+      
+      // Unpivot a nível de País: itera sobre cada país do SKU para gravar linhas individualizadas
+      const countriesToProcess = sku.countries && sku.countries.length > 0 ? sku.countries : ["N/A"];
+
+      countriesToProcess.forEach(countryCode => {
+        const mavDateStr = project.mavDates?.[sku.id]?.[countryCode] || "";
+        const solDateStr = project.solDates?.[sku.id]?.[countryCode] || "";
+
+        for (let i = 0; i < 12; i++) {
+          rows.push([
+            project.projectName,
+            sku.value,
+            formatMonthYear(prodStartDate, i),
+            prodMonths[i] ? Number(prodMonths[i]) : 0,
+            formatMonthYear(salesStartDate, i),
+            salesMonths[i] ? Number(salesMonths[i]) : 0,
+            project.om1Target ? Number(project.om1Target) / 100 : "",
+            new Date().toLocaleDateString("pt-BR"),
+            countryCode,
+            mavDateStr,
+            solDateStr,
+          ]);
+        }
+      });
     });
 
     try {
@@ -362,7 +394,6 @@ function ProjectDataCollector() {
   };
 
   const exportXLSX = () => {
-    // Busca segura da biblioteca tanto no escopo global quanto no window
     const activeXLSX = typeof XLSX !== 'undefined' ? XLSX : (typeof window !== 'undefined' ? window.XLSX : null);
     
     if (!activeXLSX) {
@@ -372,7 +403,6 @@ function ProjectDataCollector() {
 
     const rows = [];
     
-    // Cabeçalhos padronizados da tabela unpivot destino
     rows.push([
       "Project Execution",
       "SKU",
@@ -383,47 +413,57 @@ function ProjectDataCollector() {
       "Venda Planejada",
       "Venda Real",
       "OM1% Target",
-      "País"
+      "País",
+      "Data MAV Planejada",
+      "Data SOL Planejada",
     ]);
 
     allProjects.forEach(p => {
       const validSkus = p.skus.filter(s => s.value.trim() !== "");
-      const skusToProcess = validSkus.length > 0 ? validSkus : [{ value: "" }];
+      const skusToProcess = validSkus.length > 0 ? validSkus : [{ id: "__default__", value: "", countries: [] }];
 
       skusToProcess.forEach(sku => {
         const prodMonths = p.productionMonthsBySku?.[sku.id] || emptyMonthValues();
         const salesMonths = p.salesMonthsBySku?.[sku.id] || emptyMonthValues();
         const prodStartDate = (p.productionStartDateBySku && p.productionStartDateBySku[sku.id]) || "";
         const salesStartDate = (p.salesStartDateBySku && p.salesStartDateBySku[sku.id]) || "";
-        for (let i = 0; i < 12; i++) {
-          const prodMonth = formatMonthYear(prodStartDate, i);
-          const prodVol = prodMonths[i] ? Number(prodMonths[i]) : 0;
-          
-          const salesMonth = formatMonthYear(salesStartDate, i);
-          const salesVol = salesMonths[i] ? Number(salesMonths[i]) : 0;
+        
+        const countriesToProcess = sku.countries && sku.countries.length > 0 ? sku.countries : ["N/A"];
 
-          if (prodMonth || salesMonth) {
-            rows.push([
-              p.projectName,
-              sku.value,
-              prodMonth,
-              prodVol,
-              "", // Produção Real - pronta para input manual
-              salesMonth,
-              salesVol,
-              "", // Venda Real - pronta para input manual
-              p.om1Target ? Number(p.om1Target) / 100 : "", // Salva como decimal puro para formatação nativa
-              (sku.countries || []).join(", ")
-            ]);
+        countriesToProcess.forEach(countryCode => {
+          const mavDateStr = p.mavDates?.[sku.id]?.[countryCode] || "";
+          const solDateStr = p.solDates?.[sku.id]?.[countryCode] || "";
+
+          for (let i = 0; i < 12; i++) {
+            const prodMonth = formatMonthYear(prodStartDate, i);
+            const prodVol = prodMonths[i] ? Number(prodMonths[i]) : 0;
+            
+            const salesMonth = formatMonthYear(salesStartDate, i);
+            const salesVol = salesMonths[i] ? Number(salesMonths[i]) : 0;
+
+            if (prodMonth || salesMonth) {
+              rows.push([
+                p.projectName,
+                sku.value,
+                prodMonth,
+                prodVol,
+                "", 
+                salesMonth,
+                salesVol,
+                "", 
+                p.om1Target ? Number(p.om1Target) / 100 : "", 
+                countryCode,
+                mavDateStr,
+                solDateStr,
+              ]);
+            }
           }
-        }
+        });
       });
     });
 
     const ws = activeXLSX.utils.aoa_to_sheet(rows);
 
-    // Força tipo texto nas colunas de Mês Referência (índices 2 e 5)
-    // Sem isso, o Excel pode fazer auto-parse de "03/2026" como uma data
     if (ws['!ref']) {
       const fullRange = activeXLSX.utils.decode_range(ws['!ref']);
       const mesColumns = [2, 5];
@@ -431,18 +471,16 @@ function ProjectDataCollector() {
         mesColumns.forEach(col => {
           const cellRef = activeXLSX.utils.encode_cell({ r: row, c: col });
           if (ws[cellRef]) {
-            ws[cellRef].t = 's'; // tipo string
-            ws[cellRef].z = '@'; // formato "Texto" — bloqueia auto-parse de data no Excel
+            ws[cellRef].t = 's'; 
+            ws[cellRef].z = '@'; 
           }
         });
       }
     }
 
-    // Formata dinamicamente as células numéricas e as máscaras de porcentagem da coluna I (índice 8)
     if (ws['!ref']) {
       const range = activeXLSX.utils.decode_range(ws['!ref']);
       
-      // Aplica formatação de porcentagem nas linhas de dados
       for (let row = range.s.r + 1; row <= range.e.r; row++) {
         const cellRef = activeXLSX.utils.encode_cell({ r: row, c: 8 });
         if (ws[cellRef] && ws[cellRef].v !== "") {
@@ -451,10 +489,9 @@ function ProjectDataCollector() {
         }
       }
 
-      // AUTO-FIT: Calcula a largura perfeita para cada coluna não quebrar texto
       const maxCols = range.e.c - range.s.c + 1;
       ws['!cols'] = Array(maxCols).fill(null).map((_, colIdx) => {
-        let maxLen = 10; // Tamanho mínimo padrão
+        let maxLen = 10; 
         for (let row = range.s.r; row <= range.e.r; row++) {
           const cellRef = activeXLSX.utils.encode_cell({ r: row, c: colIdx });
           if (ws[cellRef] && ws[cellRef].v) {
@@ -464,7 +501,7 @@ function ProjectDataCollector() {
             }
           }
         }
-        return { wch: maxLen + 3 }; // Adiciona um pequeno espaçamento de respiro à célula
+        return { wch: maxLen + 3 }; 
       });
     }
 
@@ -869,7 +906,7 @@ function ProjectDataCollector() {
               <div style={{
                 display: "inline-block",
                 background: "var(--color-background-info)",
-                color: "var(--color-text-info)",
+                color: "var(--text-info)",
                 borderRadius: "var(--border-radius-md)",
                 padding: "4px 12px",
                 fontSize: 13,
@@ -883,8 +920,82 @@ function ProjectDataCollector() {
           </div>
         )}
 
-        {/* STEP 5: Review */}
-        {step === 5 && (
+        {/* STEP 5: Datas MAV e SOL individuais por SKU e País */}
+        {step === 5 && (() => {
+          const validSkus = form.skus.filter(s => s.value.trim());
+
+          if (validSkus.length === 0 || validSkus.every(s => !s.countries || s.countries.length === 0)) {
+            return (
+              <div>
+                <label style={labelStyle}>Datas planejadas</label>
+                <p style={hintStyle}>Você precisa adicionar SKUs e selecionar os países no Passo 2 antes de definir as datas.</p>
+              </div>
+            );
+          }
+
+          return (
+            <div>
+              <label style={labelStyle}>Datas planejadas (MAV / SOL por País)</label>
+              <p style={hintStyle}>Informe as datas planejadas de MAV e SOL para cada país em cada SKU. (Opcional)</p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 24, marginTop: 16 }}>
+                {validSkus.map(sku => {
+                  if (!sku.countries || sku.countries.length === 0) return null;
+
+                  return (
+                    <div key={sku.id} style={{
+                      background: "var(--color-background-secondary)",
+                      borderRadius: "var(--border-radius-lg)",
+                      padding: "1.25rem",
+                      border: "0.5px solid var(--color-border-tertiary)"
+                    }}>
+                      <h4 style={{ margin: "0 0 12px 0", fontSize: 14, color: "var(--color-text-primary)", fontWeight: 600 }}>
+                        SKU: {sku.value}
+                      </h4>
+
+                      {/* Tabela Simplificada */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 12, marginBottom: 8, fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)" }}>
+                        <div>País</div>
+                        <div>Data MAV</div>
+                        <div>Data SOL</div>
+                      </div>
+
+                      {sku.countries.map(code => {
+                        const countryObj = COUNTRIES.find(c => c.code === code);
+                        const countryLabel = countryObj ? countryObj.label : code;
+                        const mavVal = form.mavDates?.[sku.id]?.[code] || "";
+                        const solVal = form.solDates?.[sku.id]?.[code] || "";
+
+                        return (
+                          <div key={code} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                            <div style={{ fontSize: 13, color: "var(--color-text-primary)" }}>
+                              {countryLabel}
+                            </div>
+                            <input
+                              type="month"
+                              value={mavVal}
+                              onChange={e => updateCountryDate("mav", sku.id, code, e.target.value)}
+                              style={{ width: "100%", fontSize: 12, padding: "6px" }}
+                            />
+                            <input
+                              type="month"
+                              value={solVal}
+                              onChange={e => updateCountryDate("sol", sku.id, code, e.target.value)}
+                              style={{ width: "100%", fontSize: 12, padding: "6px" }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* STEP 6: Review */}
+        {step === 6 && (
           <div>
             <h3 style={{ margin: "0 0 1rem", fontSize: 15, fontWeight: 500 }}>Revisão dos dados</h3>
 
@@ -896,6 +1007,7 @@ function ProjectDataCollector() {
                   : s.value
               ).join(", ")
             } />
+            
             {form.skus.filter(s => s.value.trim()).map(sku => {
               const prodMonths = form.productionMonthsBySku[sku.id] || emptyMonthValues();
               const prodStartDate = (form.productionStartDateBySku && form.productionStartDateBySku[sku.id]) || "";
@@ -923,6 +1035,7 @@ function ProjectDataCollector() {
                 </div>
               );
             })}
+            
             {form.skus.filter(s => s.value.trim()).map(sku => {
               const salesMonths = form.salesMonthsBySku[sku.id] || emptyMonthValues();
               const salesStartDate = (form.salesStartDateBySku && form.salesStartDateBySku[sku.id]) || "";
@@ -950,7 +1063,40 @@ function ProjectDataCollector() {
                 </div>
               );
             })}
+            
             <ReviewRow label="OM1% Target" value={`${parseFloat(form.om1Target || 0).toFixed(1)}%`} />
+            
+            {/* Listagem detalhada das Datas por SKU/País na Revisão */}
+            <div style={{ marginTop: 16 }}>
+              <span style={reviewLabelStyle}>Prazos de MAV / SOL por País</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
+                {form.skus.filter(s => s.value.trim()).map(sku => (
+                  <div key={sku.id} style={{ background: "var(--color-background-secondary)", padding: "8px 12px", borderRadius: "var(--border-radius-md)" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>SKU: {sku.value}</div>
+                    {(sku.countries || []).map(code => {
+                      const countryObj = COUNTRIES.find(c => c.code === code);
+                      const countryLabel = countryObj ? countryObj.label : code;
+                      
+                      const mav = form.mavDates?.[sku.id]?.[code];
+                      const sol = form.solDates?.[sku.id]?.[code];
+                      
+                      const format = (d) => {
+                        if (!d) return "—";
+                        const [y, m] = d.split("-");
+                        return `${MONTH_NAMES[parseInt(m, 10) - 1]}/${String(y).slice(2)}`;
+                      };
+
+                      return (
+                        <div key={code} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0", color: "var(--color-text-secondary)" }}>
+                          <span>{countryLabel}</span>
+                          <span>MAV: {format(mav)} | SOL: {format(sol)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1024,6 +1170,7 @@ const reviewLabelStyle = {
   fontWeight: 500,
 };
 
+// Componente simples para linhas de revisão estáticas
 function ReviewRow({ label, value }) {
   return (
     <div style={{
