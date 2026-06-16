@@ -1,6 +1,5 @@
 const { useState } = React;
 
-// Injeta animação de loading para o botão Salvar
 (function() {
   const style = document.createElement("style");
   style.textContent = "@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }";
@@ -24,72 +23,197 @@ const COUNTRIES = [
   { code: "CL", label: "🇨🇱 Chile" },
   { code: "CO", label: "🇨🇴 Colômbia" },
   { code: "MX", label: "🇲🇽 México" },
-  { code: "PY", label: "🇵y Paraguai" },
-  { code: "EC", label: "EC Ecuador" },
-  { code: "UY", label: "UY Uruguai" },
+  { code: "PY", label: "🇵🇾 Paraguai" },
+  { code: "EC", label: "🇪🇨 Ecuador" },
+  { code: "UY", label: "🇺🇾 Uruguai" },
   { code: "PE", label: "🇵🇪 Peru" },
-  { code: "BO", label: "bo Bolivia" },
-  { code: "PC", label: "pc Costa Rica" }
+  { code: "BO", label: "🇧🇴 Bolivia" },
+  { code: "CR", label: "🇨🇷 Costa Rica" }
 ];
 
-// Calcula o rótulo de exibição em tela de forma segura contra fuso horário
+const VERSION_TYPES = [
+  "Solo (Cordless)", "Basica (Corded)", "Basica + AC (Corded)",
+  "Kit 1Bat", "Kit 2Bat", "Kit 1Bat + AC", "Kit 2Bat + AC"
+];
+
+const PACKAGING_TYPES = [
+  "Carton box standard", "Carton box L-Boxx-ready", "Standard case",
+  "Standard case w/sleeve", "L-Case", "L-Case w/sleeve"
+];
+
+// ── Bosch palette ──────────────────────────────────────────────
+const B = {
+  red:        "#a81212",
+  redDark:    "#b8000f",
+  dark:       "#000000",
+  darkMid:    "#202020",
+  blue:       "#0b6bac",
+  blueBg:     "#262f36",
+  blueBorder: "#0c6baa",
+  bg:         "#ffffff",
+  bgGray:     "#2c4c5f",
+  bgDark:     "#412c2c",
+  border:     "#dddddd",
+  textPri:    "#000000",
+  textSec:    "#ffffff",
+  textTer:    "#fffbfb",
+  textGreen:  "#137333",
+  bgGreen:    "#59c577",
+  borderGreen:"#137333",
+};
+
+// ── Shared style tokens ────────────────────────────────────────
+const labelStyle = {
+  display: "block", fontSize: 13, fontWeight: 600,
+  marginBottom: 8, color: B.textPri, letterSpacing: "0.01em"
+};
+const hintStyle = {
+  fontSize: 12, color: B.textPri, marginTop: 6, marginBottom: 0
+};
+const reviewLabelStyle = {
+  fontSize: 12, color: B.textPri, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em"
+};
+
+const inputBase = {
+  padding: "9px 12px",
+  border: `1px solid ${B.border}`,
+  borderRadius: 3,
+  fontSize: 14,
+  color: B.textPri,
+  backgroundColor: B.bg,
+  outline: "none",
+  fontFamily: "inherit",
+  transition: "border-color 0.15s",
+};
+
+const btnBase = {
+  padding: "9px 18px",
+  border: `1.5px solid ${B.border}`,
+  borderRadius: 3,
+  backgroundColor: B.bg,
+  color: B.textPri,
+  fontSize: 14,
+  fontWeight: 600,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  transition: "all 0.15s",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+};
+
+const btnPrimary = {
+  ...btnBase,
+  backgroundColor: B.red,
+  color: "#fff",
+  borderColor: B.red,
+};
+
+const btnGhost = {
+  ...btnBase,
+  backgroundColor: "transparent",
+  border: "none",
+  padding: "6px 10px",
+};
+
+// ── Helpers ────────────────────────────────────────────────────
+
+
+function maskSku(raw) {
+  const chars = raw.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10); // remove tudo que não for letra/número
+  let masked = chars.slice(0, 4);
+  if (chars.length > 4) masked += "." + chars.slice(4, 7);
+  if (chars.length > 7) masked += "." + chars.slice(7, 10);
+  return masked;
+}
+
+function isSkuComplete(value) {
+  return /^[A-Za-z0-9]{4}\.[A-Za-z0-9]{3}\.[A-Za-z0-9]{3}$/.test(value);
+}
+
 function getMonthLabel(startDate, idx) {
   if (!startDate) return MONTHS_LABELS[idx];
   const [year, month] = startDate.split("-").map(Number);
-  // Usa o dia 15 para evitar que shifts de timezone mudem o mês final
   const d = new Date(year, month - 1 + idx, 15);
   return `${MONTH_NAMES[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
 }
 
-// Formata a data para a planilha no modelo unpivot desejado (ex: fev-27)
 function formatMonthYear(startDate, idx) {
   if (!startDate) return "";
   const [year, month] = startDate.split("-").map(Number);
   const d = new Date(year, month - 1 + idx, 15);
-  const monthsPt = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  const monthsPt = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
   return `${monthsPt[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`;
 }
 
 const emptyMonthValues = () => Array(12).fill("");
 
+function parseExcelPaste(text) {
+  if (!text || !text.trim()) return null;
+  const cleaned = text.trim();
+  let parts;
+  if (cleaned.includes("\t"))      parts = cleaned.split("\t");
+  else if (cleaned.includes(";"))  parts = cleaned.split(";");
+  else if (cleaned.includes(","))  parts = cleaned.split(",");
+  else return null;
+  const values = parts.map(p => p.trim().replace(/\./g, "").replace(",", "."));
+  return values.length >= 2 ? values : null;
+}
+
 function createInitialState() {
-  const firstSkuId = Date.now();
+  const firstVersionId = Date.now();
+  const firstSkuId = Date.now() + 1;
   return {
     projectName: "",
-    skus: [{ id: firstSkuId, value: "", countries: [] }],
+    versions: [{ id: firstVersionId, type: "", packaging: "" }],
+    skus: [{ id: firstSkuId, versionId: firstVersionId, value: "", countries: [] }],
     productionStartDateBySku: { [firstSkuId]: "" },
     productionMonthsBySku: { [firstSkuId]: emptyMonthValues() },
     salesStartDateBySku: { [firstSkuId]: "" },
     salesMonthsBySku: { [firstSkuId]: emptyMonthValues() },
     om1Target: "",
-    mavDates: {}, // Modificado para armazenar { [skuId]: { [countryCode]: date } }
-    solDates: {}, // Modificado para armazenar { [skuId]: { [countryCode]: date } }
+    ruqTarget: "",
+    mavDates: {},
+    solDates: {},
   };
 }
 
-// Garante que todo SKU existente tenha seu array de meses e data de início inicializado
-function ensureSkuMonths(monthsBySku, skus) {
-  const updated = { ...monthsBySku };
-  skus.forEach(s => {
-    if (!updated[s.id]) updated[s.id] = emptyMonthValues();
-  });
-  return updated;
-}
+const STEPS = ["Projeto", "Versões", "SKUs", "Produção", "Vendas", "OM1 Target", "RuQ Target", "Datas", "Revisão"];
 
-function ensureSkuStartDates(startDateBySku, skus) {
-  const updated = { ...startDateBySku };
-  skus.forEach(s => {
-    if (updated[s.id] === undefined) updated[s.id] = "";
-  });
-  return updated;
-}
-
-const STEPS = ["Projeto", "SKUs", "Produção", "Vendas", "OM1 Target", "Datas", "Revisão"];
-
-// ─── CONFIGURAÇÃO — cole aqui a URL do seu Google Apps Script ───────────────
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwc2yACEAkMD5T4XOWLtutiHaPDPEwDFa8K8cMfTOyWmIkQmchepOmM7NxmAArORjJX/exec";
-// ─────────────────────────────────────────────────────────────────────────────
 
+// ── Bosch Logo SVG ─────────────────────────────────────────────
+function BoschLogo({ height = 22 }) {
+  return (
+    <svg height={height} viewBox="0 0 140 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="140" height="46" rx="23" fill="white"/>
+      <text
+        x="70" y="31"
+        textAnchor="middle"
+        fontFamily="Arial Black, Arial, sans-serif"
+        fontWeight="900"
+        fontSize="26"
+        fill={B.red}
+        letterSpacing="1"
+      >BOSCH</text>
+    </svg>
+  );
+}
+
+// ── ReviewRow ──────────────────────────────────────────────────
+function ReviewRow({ label, value }) {
+  return (
+    <div style={{
+      display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+      padding: "9px 0", borderBottom: `1px solid ${B.border}`, gap: 12
+    }}>
+      <span style={{ fontSize: 13, color: B.textPri, minWidth: 130 }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 600, textAlign: "right", wordBreak: "break-word", color: B.textPri }}>{value}</span>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────
 function ProjectDataCollector() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(createInitialState);
@@ -100,55 +224,67 @@ function ProjectDataCollector() {
   const [openDropdown, setOpenDropdown] = useState(null);
   const [activeProdSkuId, setActiveProdSkuId] = useState(null);
   const [activeSalesSkuId, setActiveSalesSkuId] = useState(null);
+  const [pasteSuccess, setPasteSuccess] = useState(null);
+  const [expandedVersions, setExpandedVersions] = useState({});
+  
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
-  const updateStartDateBySku = (type, skuId, value) => {
-    const key = type === "prod" ? "productionStartDateBySku" : "salesStartDateBySku";
+  // ── Version management ───────────────────────────────────────
+  const addVersion = () => {
+    const newVersionId = Date.now();
+    const newSkuId = Date.now() + 1;
     setForm(f => ({
       ...f,
-      [key]: { ...f[key], [skuId]: value }
+      versions: [...f.versions, { id: newVersionId, type: "", packaging: "" }],
+      skus: [...f.skus, { id: newSkuId, versionId: newVersionId, value: "", countries: [] }],
+      productionStartDateBySku: { ...f.productionStartDateBySku, [newSkuId]: "" },
+      productionMonthsBySku: { ...f.productionMonthsBySku, [newSkuId]: emptyMonthValues() },
+      salesStartDateBySku: { ...f.salesStartDateBySku, [newSkuId]: "" },
+      salesMonthsBySku: { ...f.salesMonthsBySku, [newSkuId]: emptyMonthValues() },
     }));
   };
 
-  const updateMonthVal = (type, skuId, idx, val) => {
-    const key = type === "prod" ? "productionMonthsBySku" : "salesMonthsBySku";
-    setForm(f => {
-      const bySkuCopy = { ...f[key] };
-      const arr = [...(bySkuCopy[skuId] || emptyMonthValues())];
-      arr[idx] = val;
-      bySkuCopy[skuId] = arr;
-      return { ...f, [key]: bySkuCopy };
-    });
-  };
+  const updateVersion = (id, field, value) =>
+    setForm(f => ({ ...f, versions: f.versions.map(v => v.id === id ? { ...v, [field]: value } : v) }));
 
-  // Atualiza a data MAV ou SOL de um SKU e País específico
-  const updateCountryDate = (type, skuId, countryCode, value) => {
-    const key = type === "mav" ? "mavDates" : "solDates";
+  const removeVersion = (versionId) => {
     setForm(f => {
-      const skuDates = f[key][skuId] || {};
+      const skusToRemove = f.skus.filter(s => s.versionId === versionId).map(s => s.id);
+      const newProd = { ...f.productionMonthsBySku };
+      const newSales = { ...f.salesMonthsBySku };
+      const newProdDates = { ...f.productionStartDateBySku };
+      const newSalesDates = { ...f.salesStartDateBySku };
+      const newMavDates = { ...f.mavDates };
+      const newSolDates = { ...f.solDates };
+      skusToRemove.forEach(id => {
+        delete newProd[id]; delete newSales[id];
+        delete newProdDates[id]; delete newSalesDates[id];
+        delete newMavDates[id]; delete newSolDates[id];
+      });
       return {
         ...f,
-        [key]: {
-          ...f[key],
-          [skuId]: { ...skuDates, [countryCode]: value }
-        }
+        versions: f.versions.filter(v => v.id !== versionId),
+        skus: f.skus.filter(s => s.versionId !== versionId),
+        productionMonthsBySku: newProd, salesMonthsBySku: newSales,
+        productionStartDateBySku: newProdDates, salesStartDateBySku: newSalesDates,
+        mavDates: newMavDates, solDates: newSolDates,
       };
     });
   };
 
-  const addSku = () =>
-    setForm(f => {
-      const newSku = { id: Date.now(), value: "", countries: [] };
-      return {
-        ...f,
-        skus: [...f.skus, newSku],
-        productionStartDateBySku: { ...f.productionStartDateBySku, [newSku.id]: "" },
-        productionMonthsBySku: { ...f.productionMonthsBySku, [newSku.id]: emptyMonthValues() },
-        salesStartDateBySku: { ...f.salesStartDateBySku, [newSku.id]: "" },
-        salesMonthsBySku: { ...f.salesMonthsBySku, [newSku.id]: emptyMonthValues() },
-      };
-    });
+  // ── SKU management ───────────────────────────────────────────
+  const addSkuToVersion = (versionId) => {
+    const newSku = { id: Date.now(), versionId, value: "", countries: [] };
+    setForm(f => ({
+      ...f,
+      skus: [...f.skus, newSku],
+      productionStartDateBySku: { ...f.productionStartDateBySku, [newSku.id]: "" },
+      productionMonthsBySku: { ...f.productionMonthsBySku, [newSku.id]: emptyMonthValues() },
+      salesStartDateBySku: { ...f.salesStartDateBySku, [newSku.id]: "" },
+      salesMonthsBySku: { ...f.salesMonthsBySku, [newSku.id]: emptyMonthValues() },
+    }));
+  };
 
   const removeSku = (id) =>
     setForm(f => {
@@ -158,21 +294,15 @@ function ProjectDataCollector() {
       const newSalesDates = { ...f.salesStartDateBySku };
       const newMavDates = { ...f.mavDates };
       const newSolDates = { ...f.solDates };
-      delete newProd[id];
-      delete newSales[id];
-      delete newProdDates[id];
-      delete newSalesDates[id];
-      delete newMavDates[id];
-      delete newSolDates[id];
+      delete newProd[id]; delete newSales[id];
+      delete newProdDates[id]; delete newSalesDates[id];
+      delete newMavDates[id]; delete newSolDates[id];
       return {
         ...f,
         skus: f.skus.filter(s => s.id !== id),
-        productionMonthsBySku: newProd,
-        salesMonthsBySku: newSales,
-        productionStartDateBySku: newProdDates,
-        salesStartDateBySku: newSalesDates,
-        mavDates: newMavDates,
-        solDates: newSolDates,
+        productionMonthsBySku: newProd, salesMonthsBySku: newSales,
+        productionStartDateBySku: newProdDates, salesStartDateBySku: newSalesDates,
+        mavDates: newMavDates, solDates: newSolDates,
       };
     });
 
@@ -189,20 +319,65 @@ function ProjectDataCollector() {
       })
     }));
 
-  const updateSku_value = (id, value) => updateSku(id, "value", value);
+  const updateStartDateBySku = (type, skuId, value) => {
+    const key = type === "prod" ? "productionStartDateBySku" : "salesStartDateBySku";
+    setForm(f => ({ ...f, [key]: { ...f[key], [skuId]: value } }));
+  };
 
-  // ─── CountryDropdown ────────────────────────────────────────────────────────
+  const updateMonthVal = (type, skuId, idx, val) => {
+    const key = type === "prod" ? "productionMonthsBySku" : "salesMonthsBySku";
+    setForm(f => {
+      const bySkuCopy = { ...f[key] };
+      const arr = [...(bySkuCopy[skuId] || emptyMonthValues())];
+      arr[idx] = val;
+      bySkuCopy[skuId] = arr;
+      return { ...f, [key]: bySkuCopy };
+    });
+  };
+
+  const handleMonthPaste = (e, type, skuId, startIdx) => {
+    const text = e.clipboardData.getData("text");
+    const values = parseExcelPaste(text);
+    if (!values) return;
+    e.preventDefault();
+    const key = type === "prod" ? "productionMonthsBySku" : "salesMonthsBySku";
+    setForm(f => {
+      const bySkuCopy = { ...f[key] };
+      const arr = [...(bySkuCopy[skuId] || emptyMonthValues())];
+      values.forEach((val, i) => {
+        const targetIdx = startIdx + i;
+        if (targetIdx < 12) {
+          const num = val.replace(/[^\d.-]/g, "");
+          arr[targetIdx] = num !== "" && !isNaN(Number(num)) ? num : arr[targetIdx];
+        }
+      });
+      bySkuCopy[skuId] = arr;
+      return { ...f, [key]: bySkuCopy };
+    });
+    setPasteSuccess({ type, skuId });
+    setTimeout(() => setPasteSuccess(null), 2000);
+  };
+
+  const updateCountryDate = (type, skuId, countryCode, value) => {
+    const key = type === "mav" ? "mavDates" : "solDates";
+    setForm(f => {
+      const skuDates = f[key][skuId] || {};
+      return { ...f, [key]: { ...f[key], [skuId]: { ...skuDates, [countryCode]: value } } };
+    });
+  };
+  
+
+  // ── CountryDropdown ──────────────────────────────────────────
   function CountryDropdown({ skuId, selected }) {
     const isOpen = openDropdown === skuId;
     const allSelected = selected.length === COUNTRIES.length;
 
     const toggleAll = () => {
       const codes = allSelected ? [] : COUNTRIES.map(c => c.code);
-      setForm(f => ({
-        ...f,
-        skus: f.skus.map(s => s.id === skuId ? { ...s, countries: codes } : s)
-      }));
+      setForm(f => ({ ...f, skus: f.skus.map(s => s.id === skuId ? { ...s, countries: codes } : s) }));
     };
+
+    const hasSelection = selected.length > 0;
 
     return (
       <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
@@ -210,12 +385,12 @@ function ProjectDataCollector() {
           type="button"
           onClick={() => setOpenDropdown(isOpen ? null : skuId)}
           style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "0 10px", height: 36, whiteSpace: "nowrap",
-            fontSize: 12, minWidth: 120,
-            background: selected.length > 0 ? "var(--color-background-info)" : undefined,
-            color: selected.length > 0 ? "var(--color-text-info)" : undefined,
-            borderColor: selected.length > 0 ? "var(--color-border-info)" : undefined,
+            ...btnBase,
+            padding: "0 12px", height: 38, whiteSpace: "nowrap",
+            fontSize: 12, minWidth: 130,
+            backgroundColor: hasSelection ? B.textSec : B.bg,
+            color: hasSelection ? B.blue : B.textPri,
+            borderColor: hasSelection ? B.blue : B.border,
           }}
           title="Selecionar países"
         >
@@ -231,32 +406,29 @@ function ProjectDataCollector() {
         {isOpen && (
           <div style={{
             position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 100,
-            background: "var(--color-background-primary)",
-            border: "0.5px solid var(--color-border-tertiary)",
-            borderRadius: "var(--border-radius-lg)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            background: B.textSec,
+            border: `1px solid ${B.border}`,
+            borderRadius: 4,
+            boxShadow: "0 8px 24px rgba(219, 214, 214, 0.14)",
             minWidth: 220, maxHeight: 280, overflowY: "auto",
             padding: "6px 0"
           }}>
-            {/* Select all */}
             <div
               onClick={toggleAll}
               style={{
                 display: "flex", alignItems: "center", gap: 10,
-                padding: "7px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600,
-                borderBottom: "0.5px solid var(--color-border-tertiary)",
-                marginBottom: 4,
-                color: allSelected ? "var(--color-text-info)" : "var(--color-text-secondary)"
+                padding: "8px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600,
+                borderBottom: `1px solid ${B.border}`, marginBottom: 4,
+                color: allSelected ? B.blue : B.textSec
               }}
             >
               <div style={{
-                width: 16, height: 16, borderRadius: 4,
-                border: "1.5px solid", flexShrink: 0,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                borderColor: allSelected ? "var(--color-border-info)" : "var(--color-border-tertiary)",
-                background: allSelected ? "var(--color-background-info)" : "transparent"
+                width: 16, height: 16, borderRadius: 3,
+                border: `1.5px solid ${allSelected ? B.textSec : B.border}`,
+                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                backgroundColor: allSelected ? B.blueBg : "transparent"
               }}>
-                {allSelected && <i className="ti ti-check" style={{ fontSize: 10, color: "var(--color-text-info)" }} aria-hidden="true"></i>}
+                {allSelected && <i className="ti ti-check" style={{ fontSize: 10, color: B.blue }} aria-hidden="true"></i>}
               </div>
               Todos os países
             </div>
@@ -269,19 +441,18 @@ function ProjectDataCollector() {
                   onClick={() => toggleSkuCountry(skuId, c.code)}
                   style={{
                     display: "flex", alignItems: "center", gap: 10,
-                    padding: "6px 14px", cursor: "pointer", fontSize: 13,
-                    background: checked ? "var(--color-background-info)" : "transparent",
+                    padding: "7px 14px", cursor: "pointer", fontSize: 13,
+                    backgroundColor: checked ? B.textSec : "transparent",
                     transition: "background 0.1s"
                   }}
                 >
                   <div style={{
-                    width: 16, height: 16, borderRadius: 4,
-                    border: "1.5px solid", flexShrink: 0,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    borderColor: checked ? "var(--color-border-info)" : "var(--color-border-tertiary)",
-                    background: checked ? "var(--color-background-info)" : "transparent"
+                    width: 16, height: 16, borderRadius: 3,
+                    border: `1.5px solid ${checked ? B.blue : B.border}`,
+                    flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    backgroundColor: checked ? B.blueBg : "transparent"
                   }}>
-                    {checked && <i className="ti ti-check" style={{ fontSize: 10, color: "var(--color-text-info)" }} aria-hidden="true"></i>}
+                    {checked && <i className="ti ti-check" style={{ fontSize: 10, color: B.blue }} aria-hidden="true"></i>}
                   </div>
                   {c.label}
                 </div>
@@ -292,25 +463,20 @@ function ProjectDataCollector() {
       </div>
     );
   }
-  // ────────────────────────────────────────────────────────────────────────────
 
+  // ── Validation ───────────────────────────────────────────────
   const canNext = () => {
     if (step === 0) return form.projectName.trim().length > 0;
-    if (step === 1) {
-      const filledSkus = form.skus.filter(s => s.value.trim());
-      if (!filledSkus.length) return false;
-      return filledSkus.every(s => s.countries && s.countries.length > 0);
-    }
+    if (step === 1) return form.versions.length > 0 && form.versions.every(v => v.type && v.packaging);
     if (step === 2) {
-      const validSkus = form.skus.filter(s => s.value.trim());
-      return validSkus.every(s => form.productionStartDateBySku[s.id]);
-    }
-    if (step === 3) {
-      const validSkus = form.skus.filter(s => s.value.trim());
-      return validSkus.every(s => form.salesStartDateBySku[s.id]);
-    }
-    if (step === 4) return form.om1Target !== "";
-    if (step === 5) return true; // Datas MAV/SOL são opcionais
+  const filledSkus = form.skus.filter(s => s.value.trim());
+  return filledSkus.length > 0 &&
+    filledSkus.every(s => s.countries && s.countries.length > 0 && isSkuComplete(s.value));
+}
+    if (step === 3) return form.skus.filter(s => s.value.trim()).every(s => form.productionStartDateBySku[s.id]);
+    if (step === 4) return form.skus.filter(s => s.value.trim()).every(s => form.salesStartDateBySku[s.id]);
+    if (step === 5) return form.om1Target !== "";
+    if (step === 6) return form.ruqTarget !== "";
     return true;
   };
 
@@ -321,6 +487,7 @@ function ProjectDataCollector() {
     return validSkus[0].id;
   };
 
+  // ── Submit ───────────────────────────────────────────────────
   const handleSubmit = async () => {
     const project = { ...form, id: Date.now() };
     setSaving(true);
@@ -331,44 +498,39 @@ function ProjectDataCollector() {
     const skusToProcess = validSkus.length > 0 ? validSkus : [{ id: "__default__", value: "", countries: [] }];
 
     skusToProcess.forEach(sku => {
+      const versionData = project.versions.find(v => v.id === sku.versionId) || {};
       const prodMonths = project.productionMonthsBySku[sku.id] || emptyMonthValues();
       const salesMonths = project.salesMonthsBySku[sku.id] || emptyMonthValues();
       const prodStartDate = (project.productionStartDateBySku && project.productionStartDateBySku[sku.id]) || "";
       const salesStartDate = (project.salesStartDateBySku && project.salesStartDateBySku[sku.id]) || "";
-      
-      // Unpivot a nível de País: itera sobre cada país do SKU para gravar linhas individualizadas
       const countriesToProcess = sku.countries && sku.countries.length > 0 ? sku.countries : ["N/A"];
 
       countriesToProcess.forEach(countryCode => {
         const mavDateStr = project.mavDates?.[sku.id]?.[countryCode] || "";
         const solDateStr = project.solDates?.[sku.id]?.[countryCode] || "";
-
         for (let i = 0; i < 12; i++) {
           rows.push([
-            project.projectName,
-            sku.value,
-            formatMonthYear(prodStartDate, i),
-            prodMonths[i] ? Number(prodMonths[i]) : 0,
-            formatMonthYear(salesStartDate, i),
-            salesMonths[i] ? Number(salesMonths[i]) : 0,
+            project.projectName, sku.value,
+            formatMonthYear(prodStartDate, i), prodMonths[i] ? Number(prodMonths[i]) : 0,
+            formatMonthYear(salesStartDate, i), salesMonths[i] ? Number(salesMonths[i]) : 0,
             project.om1Target ? Number(project.om1Target) / 100 : "",
+            project.ruqTarget ? Number(project.ruqTarget) / 100 : "",
             new Date().toLocaleDateString("pt-BR"),
-            countryCode,
-            mavDateStr,
-            solDateStr,
+            new Date().toLocaleDateString("pt-BR"),
+            countryCode, mavDateStr, solDateStr,
+            versionData.type || "", versionData.packaging || ""
           ]);
         }
       });
     });
 
     try {
-      await fetch(APPS_SCRIPT_URL, {
-        method: "POST",
-        body: JSON.stringify({ rows }),
-      });
+      await fetch(APPS_SCRIPT_URL, { method: "POST", body: JSON.stringify({ rows }) });
     } catch (err) {
       console.error("Erro ao salvar:", err);
       setSaveError(true);
+      setSaving(false);
+      return;
     }
 
     setSaving(false);
@@ -384,806 +546,718 @@ function ProjectDataCollector() {
     setActiveSalesSkuId(null);
   };
 
-  const exportJSON = () => {
-    const blob = new Blob([JSON.stringify(allProjects, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "projetos_dashboard.json";
-    a.click();
-  };
-
-  const exportXLSX = () => {
-    const activeXLSX = typeof XLSX !== 'undefined' ? XLSX : (typeof window !== 'undefined' ? window.XLSX : null);
-    
-    if (!activeXLSX) {
-      alert("A biblioteca SheetJS (XLSX) não foi encontrada no ambiente. Certifique-se de que ela está carregada.");
-      return;
-    }
-
-    const rows = [];
-    
-    rows.push([
-      "Project Execution",
-      "SKU",
-      "Mês Referência",
-      "Plano de Produção",
-      "Produção Real",
-      "Mês Referência",
-      "Venda Planejada",
-      "Venda Real",
-      "OM1% Target",
-      "País",
-      "Data MAV Planejada",
-      "Data SOL Planejada",
-    ]);
-
-    allProjects.forEach(p => {
-      const validSkus = p.skus.filter(s => s.value.trim() !== "");
-      const skusToProcess = validSkus.length > 0 ? validSkus : [{ id: "__default__", value: "", countries: [] }];
-
-      skusToProcess.forEach(sku => {
-        const prodMonths = p.productionMonthsBySku?.[sku.id] || emptyMonthValues();
-        const salesMonths = p.salesMonthsBySku?.[sku.id] || emptyMonthValues();
-        const prodStartDate = (p.productionStartDateBySku && p.productionStartDateBySku[sku.id]) || "";
-        const salesStartDate = (p.salesStartDateBySku && p.salesStartDateBySku[sku.id]) || "";
-        
-        const countriesToProcess = sku.countries && sku.countries.length > 0 ? sku.countries : ["N/A"];
-
-        countriesToProcess.forEach(countryCode => {
-          const mavDateStr = p.mavDates?.[sku.id]?.[countryCode] || "";
-          const solDateStr = p.solDates?.[sku.id]?.[countryCode] || "";
-
-          for (let i = 0; i < 12; i++) {
-            const prodMonth = formatMonthYear(prodStartDate, i);
-            const prodVol = prodMonths[i] ? Number(prodMonths[i]) : 0;
-            
-            const salesMonth = formatMonthYear(salesStartDate, i);
-            const salesVol = salesMonths[i] ? Number(salesMonths[i]) : 0;
-
-            if (prodMonth || salesMonth) {
-              rows.push([
-                p.projectName,
-                sku.value,
-                prodMonth,
-                prodVol,
-                "", 
-                salesMonth,
-                salesVol,
-                "", 
-                p.om1Target ? Number(p.om1Target) / 100 : "", 
-                countryCode,
-                mavDateStr,
-                solDateStr,
-              ]);
-            }
-          }
-        });
-      });
-    });
-
-    const ws = activeXLSX.utils.aoa_to_sheet(rows);
-
-    if (ws['!ref']) {
-      const fullRange = activeXLSX.utils.decode_range(ws['!ref']);
-      const mesColumns = [2, 5];
-      for (let row = fullRange.s.r + 1; row <= fullRange.e.r; row++) {
-        mesColumns.forEach(col => {
-          const cellRef = activeXLSX.utils.encode_cell({ r: row, c: col });
-          if (ws[cellRef]) {
-            ws[cellRef].t = 's'; 
-            ws[cellRef].z = '@'; 
-          }
-        });
-      }
-    }
-
-    if (ws['!ref']) {
-      const range = activeXLSX.utils.decode_range(ws['!ref']);
-      
-      for (let row = range.s.r + 1; row <= range.e.r; row++) {
-        const cellRef = activeXLSX.utils.encode_cell({ r: row, c: 8 });
-        if (ws[cellRef] && ws[cellRef].v !== "") {
-          ws[cellRef].t = 'n'; 
-          ws[cellRef].z = '0.0%'; 
-        }
-      }
-
-      const maxCols = range.e.c - range.s.c + 1;
-      ws['!cols'] = Array(maxCols).fill(null).map((_, colIdx) => {
-        let maxLen = 10; 
-        for (let row = range.s.r; row <= range.e.r; row++) {
-          const cellRef = activeXLSX.utils.encode_cell({ r: row, c: colIdx });
-          if (ws[cellRef] && ws[cellRef].v) {
-            const cellText = ws[cellRef].z === '0.0%' ? `${(ws[cellRef].v * 100).toFixed(1)}%` : String(ws[cellRef].v);
-            if (cellText.length > maxLen) {
-              maxLen = cellText.length;
-            }
-          }
-        }
-        return { wch: maxLen + 3 }; 
-      });
-    }
-
-    const wb = activeXLSX.utils.book_new();
-    activeXLSX.utils.book_append_sheet(wb, ws, "Projetos");
-    activeXLSX.writeFile(wb, "projetos_dashboard_unpivot.xlsx");
-  };
-
+  // ── Success screen ───────────────────────────────────────────
   if (submitted) {
     return (
-      <div style={{ padding: "2rem 1rem", maxWidth: 640, margin: "0 auto" }}>
+      <div style={{
+  minHeight: "100vh",
+  backgroundImage: "url('https://us.bosch-press.com/pressportal/us/media/dam_images_us/pi231_usus/37170_bosch_lw3_family_final_1_img_w1600.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
+  paddingTop: 4,
+  position: "relative",
+  zIndex: 1
+}}>
+  <div style={{
+    position: "fixed", inset: 0,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    zIndex: 0
+  }} />
+        {/* Header */}
         <div style={{
-          background: "var(--color-background-secondary)",
-          borderRadius: "var(--border-radius-lg)",
-          padding: "2rem",
-          textAlign: "center",
-        }}>
+  backgroundImage: "url('o05-a_18v-hub_1920x768.jpg')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+  height: 52,
+  display: "flex",
+  alignItems: "center",
+  padding: "0 24px",
+  gap: 16,
+  boxShadow: "0 2px 8px rgba(0,0,0,0.35)"
+}}>
+          <BoschLogo />
+          <span style={{ color: "#ce3b3b", fontSize: 12, borderLeft: "1px solid #9e1a1a", paddingLeft: 16 }}>
+            Cadastro de Projeto
+          </span>
+        </div>
+
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 1rem" }}>
           <div style={{
-            width: 56, height: 56, borderRadius: "50%",
-            background: "var(--color-background-success)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 1rem",
+            backgroundColor: B.bg,
+            borderRadius: 4,
+            borderTop: `3px solid ${B.textGreen}`,
+            boxShadow: "0 2px 12px rgba(0,0,0,0.09)",
+            padding: "2.5rem 2rem",
+            textAlign: "center",
+            position: "relative",
+            zIndex:1
           }}>
-            <i className="ti ti-check" style={{ fontSize: 28, color: "var(--color-text-success)" }} aria-hidden="true"></i>
+            <div style={{
+              width: 56, height: 56, borderRadius: "50%",
+              backgroundColor: B.bgGreen,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              margin: "0 auto 1.25rem",
+              border: `2px solid ${B.borderGreen}`
+            }}>
+              <i className="ti ti-check" style={{ fontSize: 28, color: B.textGreen }} aria-hidden="true"></i>
+            </div>
+            <h2 style={{ margin: "0 0 0.5rem", fontSize: 18, fontWeight: 700, color: B.textPri }}>
+              Projeto salvo com sucesso
+            </h2>
+            <p style={{ color: B.textPri, margin: "0 0 1.5rem", fontSize: 14 }}>
+              <strong style={{ fontWeight: 600 }}>{form.projectName}</strong> foi enviado para a base de dados.
+            </p>
+
+            {saveError && (
+              <div style={{
+                backgroundColor: "#c2c2c2", color: "#c5221f", borderRadius: 3,
+                padding: "10px 14px", fontSize: 13, marginBottom: "1.5rem",
+                display: "flex", alignItems: "center", gap: 8, textAlign: "left"
+              }}>
+                <i className="ti ti-alert-circle" aria-hidden="true"></i>
+                <span>Não foi possível salvar na base de dados. Verifique a URL do Apps Script.</span>
+              </div>
+            )}
+
+            {!saveError && (
+              <div style={{
+                backgroundColor: B.blueBg, color: B.textSec, borderRadius: 3,
+                padding: "10px 14px", fontSize: 13, marginBottom: "1.5rem",
+                display: "flex", alignItems: "center", gap: 8, textAlign: "left"
+              }}>
+                <i className="ti ti-table" aria-hidden="true"></i>
+                <span>Os dados foram salvos com sucesso.</span>
+              </div>
+            )}
+
+            <button type="button" onClick={handleNewProject} style={btnPrimary}>
+              <i className="ti ti-plus" aria-hidden="true"></i> Novo projeto
+            </button>
           </div>
-          <h2 style={{ margin: "0 0 0.5rem", fontSize: 18, fontWeight: 500 }}>Projeto salvo com sucesso</h2>
-          <p style={{ color: "var(--color-text-secondary)", margin: "0 0 1.5rem", fontSize: 14 }}>
-            <strong style={{ fontWeight: 500 }}>{form.projectName}</strong> foi salvo e enviado para a base de dados.
-          </p>
-          {saveError && (
-            <div style={{
-              background: "#fce8e6", color: "#c5221f", borderRadius: "var(--border-radius-md)",
-              padding: "10px 14px", fontSize: 13, marginBottom: "1.5rem",
-              display: "flex", alignItems: "center", gap: 8, textAlign: "left"
-            }}>
-              <i className="ti ti-alert-circle" aria-hidden="true"></i>
-              <span>Não foi possível salvar na base de dados. Verifique a URL do Apps Script.</span>
-            </div>
-          )}
-          {!saveError && (
-            <div style={{
-              background: "var(--color-background-info)", color: "var(--color-text-info)", borderRadius: "var(--border-radius-md)",
-              padding: "10px 14px", fontSize: 13, marginBottom: "1.5rem",
-              display: "flex", alignItems: "center", gap: 8, textAlign: "left"
-            }}>
-              <i className="ti ti-table" aria-hidden="true"></i>
-              <span>Os dados foram salvos com sucesso.</span>
-            </div>
-          )}
-          <button type="button" onClick={handleNewProject} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <i className="ti ti-plus" aria-hidden="true"></i> Novo projeto
-          </button>
         </div>
       </div>
     );
   }
 
+  // ── Main render ──────────────────────────────────────────────
   return (
-    <div style={{ padding: "1.5rem 1rem", maxWidth: 640, margin: "0 auto" }}
+    <div style={{ minHeight: "100vh",
+  backgroundImage: "url('https://us.bosch-press.com/pressportal/us/media/dam_images_us/pi231_usus/37170_bosch_lw3_family_final_1_img_w1600.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundAttachment: "fixed",
+  paddingTop: 4 }}
       onClick={() => setOpenDropdown(null)}
     >
-      <h2 style={{ margin: "0 0 0.25rem", fontSize: 18, fontWeight: 500 }}>
-        Cadastro de Projeto — Dashboard
-      </h2>
-      <p style={{ margin: "0 0 1.5rem", fontSize: 13, color: "var(--color-text-secondary)" }}>
-        Preencha os dados do projeto para alimentar o dashboard.
-      </p>
-
-      {/* Stepper */}
-      <div style={{ display: "flex", alignItems: "center", marginBottom: "2rem", gap: 0 }}>
-        {STEPS.map((label, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", flex: i < STEPS.length - 1 ? 1 : 0 }}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <div style={{
-                width: 28, height: 28, borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 12, fontWeight: 500,
-                background: i < step ? "var(--color-background-success)" :
-                  i === step ? "var(--color-background-info)" : "var(--color-background-secondary)",
-                color: i < step ? "var(--color-text-success)" :
-                  i === step ? "var(--color-text-info)" : "var(--color-text-tertiary)",
-                border: i === step ? "1.5px solid var(--color-border-info)" : "0.5px solid var(--color-border-tertiary)",
-                cursor: i < step ? "pointer" : "default",
-                transition: "all 0.2s"
-              }} onClick={() => i < step && setStep(i)}>
-                {i < step ? <i className="ti ti-check" style={{ fontSize: 14 }} aria-hidden="true"></i> : i + 1}
-              </div>
-              <span style={{
-                fontSize: 10, fontWeight: 500,
-                color: i === step ? "var(--color-text-info)" : "var(--color-text-tertiary)",
-                whiteSpace: "nowrap"
-              }}>{label}</span>
-            </div>
-            {i < STEPS.length - 1 && (
-              <div style={{
-                flex: 1, height: 1, marginBottom: 18,
-                background: i < step ? "var(--color-border-success)" : "var(--color-border-tertiary)"
-              }} />
-            )}
-          </div>
-        ))}
+      <div style={{
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(37, 37, 37, 0.55)",
+    zIndex: 0
+  }} />
+      
+      {/* ── Bosch Header ── */}
+      <div style={{
+        backgroundColor: B.dark, height: 52,
+        display: "flex", alignItems: "center",
+        padding: "0 24px", gap: 16,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+        position: "relative", zIndex: 1
+      }}>
+        <img
+  src="https://upload.wikimedia.org/wikipedia/commons/1/16/Bosch-logo.svg"
+  alt="Bosch"
+  style={{ height: 22,
+    backgroundColor: "white",
+    padding: "3px 10px",
+    borderRadius: 10, }}
+/>
+        <span style={{ color: "#706c6c", fontSize: 12, borderLeft: "1px solid #444", paddingLeft: 16 }}>
+          Cadastro de Projeto — Dashboard
+        </span>
       </div>
 
-      {/* Step content */}
-      <div style={{
-        background: "var(--color-background-primary)",
-        border: "0.5px solid var(--color-border-tertiary)",
-        borderRadius: "var(--border-radius-lg)",
-        padding: "1.5rem",
-        marginBottom: "1rem"
-      }}>
+      {/* ── Content wrapper ── */}
+      <div style={{ maxWidth: 680,
+         margin: "0 auto",
+          padding: "2rem 1rem",
+          position: "relative", zIndex: 1 }}>
 
-        {/* STEP 0: Project name */}
-        {step === 0 && (
-          <div>
-            <label style={labelStyle}>Nome do projeto</label>
-            <input
-              type="text"
-              value={form.projectName}
-              onChange={e => update("projectName", e.target.value)}
-              placeholder="Ex: GWS 9-125 S"
-              style={{ width: "100%", boxSizing: "border-box" }}
-              autoFocus
-            />
-            <p style={hintStyle}>Nome completo do projeto conforme aparece no dashboard.</p>
-          </div>
-        )}
+        {/* ── Page title ── */}
+        <div style={{ marginBottom: "1.75rem" }}>
+          <h2 style={{ margin: "0 0 0.25rem", fontSize: 20, fontWeight: 700, color: B.textSec }}>
+            Novo Projeto
+          </h2>
+          <p style={{ margin: 0, fontSize: 13, color: B.textSec }}>
+            Preencha os dados do projeto para alimentar o dashboard.
+          </p>
+        </div>
 
-        {/* STEP 1: SKUs */}
-        {step === 1 && (() => {
-          const filledSkus = form.skus.filter(s => s.value.trim());
-          const skusWithoutCountry = filledSkus.filter(s => !s.countries || s.countries.length === 0);
-          return (
-          <div>
-            <label style={labelStyle}>SKUs do projeto</label>
-            <p style={hintStyle}>Adicione todos os códigos de SKU relacionados a este projeto.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-              {form.skus.map((sku, i) => (
-                <div key={sku.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input
-                    type="text"
-                    value={sku.value}
-                    onChange={e => updateSku_value(sku.id, e.target.value)}
-                    placeholder={`SKU ${i + 1} — ex: 0601.9N4.3E1`}
-                    style={{ flex: 1 }}
-                    autoFocus={i === form.skus.length - 1 && i > 0}
-                  />
-                  <CountryDropdown skuId={sku.id} selected={sku.countries || []} />
-                  {form.skus.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeSku(sku.id)}
-                      style={{ padding: "0 10px", color: "var(--color-text-danger)" }}
-                      aria-label="Remover SKU"
-                    >
-                      <i className="ti ti-trash" aria-hidden="true"></i>
-                    </button>
-                  )}
+        {/* ── Stepper ── */}
+        <div style={{
+          display: "flex", alignItems: "center",
+          marginBottom: "1.75rem", overflowX: "auto", paddingBottom: 8
+        }}>
+          {STEPS.map((label, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", flex: i < STEPS.length - 1 ? 1 : 0, minWidth: i < STEPS.length - 1 ? 56 : "auto" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div
+                  onClick={() => i < step && setStep(i)}
+                  style={{
+                    width: 30, height: 30, borderRadius: "50%",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 12, fontWeight: 700,
+                    backgroundColor:
+                      i < step  ? B.bgGreen :
+                      i === step ? B.red     : B.bgGray,
+                    color:
+                      i < step  ? B.textGreen :
+                      i === step ? "#ffffff"      : B.textTer,
+                    border:
+                      i < step  ? `2px solid ${B.borderGreen}` :
+                      i === step ? `2px solid ${B.red}`         : `1px solid ${B.border}`,
+                    cursor: i < step ? "pointer" : "default",
+                    transition: "all 0.2s",
+                    flexShrink: 0,
+                  }}
+                >
+                  {i < step
+                    ? <i className="ti ti-check" style={{ fontSize: 14 }} aria-hidden="true"></i>
+                    : i + 1}
                 </div>
-              ))}
-            </div>
-            <button type="button" onClick={addSku} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-              <i className="ti ti-plus" aria-hidden="true"></i> Adicionar SKU
-            </button>
-            {skusWithoutCountry.length > 0 && filledSkus.length > 0 && (
-              <div style={{
-                marginTop: 14,
-                background: "var(--color-background-warning, #fff8e1)",
-                border: "0.5px solid var(--color-border-warning, #f9a825)",
-                borderRadius: "var(--border-radius-md)",
-                padding: "10px 14px",
-                fontSize: 12,
-                color: "var(--color-text-warning, #b45309)",
-                display: "flex", alignItems: "flex-start", gap: 8
-              }}>
-                <i className="ti ti-alert-triangle" aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }}></i>
-                <span>
-                  {skusWithoutCountry.length === 1
-                    ? `O SKU <strong>${skusWithoutCountry[0].value}</strong> precisa ter pelo menos um país selecionado para avançar.`
-                    : `Os SKUs <strong>${skusWithoutCountry.map(s => s.value).join(", ")}</strong> precisam ter pelo menos um país selecionado para avançar.`
-                  }
-                </span>
+                <span style={{
+                  fontSize: 10, fontWeight: i === step ? 700 : 500,
+                  color: i === step ? B.red : B.textTer,
+                  whiteSpace: "nowrap"
+                }}>{label}</span>
               </div>
-            )}
-          </div>
-          );
-        })()}
+              {i < STEPS.length - 1 && (
+                <div style={{
+                  flex: 1, height: 2, marginBottom: 18,
+                  backgroundColor: i < step ? B.borderGreen : B.border,
+                  transition: "background 0.3s"
+                }} />
+              )}
+            </div>
+          ))}
+        </div>
 
-        {/* STEP 2: Production plan */}
-        {step === 2 && (() => {
-          const validSkus = form.skus.filter(s => s.value.trim());
-          const currentSkuId = getActiveSkuId(activeProdSkuId, "prod");
-          const currentMonths = (currentSkuId && form.productionMonthsBySku[currentSkuId])
-            ? form.productionMonthsBySku[currentSkuId]
-            : emptyMonthValues();
-          const currentStartDate = currentSkuId ? (form.productionStartDateBySku[currentSkuId] || "") : "";
+        {/* ── Step card ── */}
+        <div style={{
+          backgroundColor: B.bg,
+          border: `1px solid ${B.border}`,
+          borderTop: `3px solid ${B.red}`,
+          borderRadius: 4,
+          padding: "1.75rem",
+          marginBottom: "1rem",
+          boxShadow: "0 2px 10px rgba(0,0,0,0.07)"
+        }}>
 
-          return (
+          {/* STEP 0: Project name */}
+          {step === 0 && (
             <div>
-              <label style={labelStyle}>Plano de produção — 12 meses</label>
-
-              {/* Tabs de SKU */}
-              {validSkus.length > 1 && (
-                <div style={{
-                  display: "flex", gap: 6, flexWrap: "wrap",
-                  marginBottom: 16, borderBottom: "0.5px solid var(--color-border-tertiary)", paddingBottom: 10
-                }}>
-                  {validSkus.map(sku => {
-                    const isActive = sku.id === currentSkuId;
-                    const hasDate = !!(form.productionStartDateBySku[sku.id]);
-                    return (
-                      <button
-                        key={sku.id}
-                        type="button"
-                        onClick={() => setActiveProdSkuId(sku.id)}
-                        style={{
-                          fontSize: 12, padding: "4px 12px", borderRadius: "var(--border-radius-md)",
-                          fontWeight: isActive ? 600 : 400,
-                          background: isActive ? "var(--color-background-info)" : "var(--color-background-secondary)",
-                          color: isActive ? "var(--color-text-info)" : "var(--color-text-secondary)",
-                          borderColor: isActive ? "var(--color-border-info)" : hasDate ? "var(--color-border-success)" : "var(--color-border-tertiary)",
-                        }}
-                      >
-                        {sku.value}
-                        {!hasDate && <span style={{ marginLeft: 4, color: "var(--color-text-danger)", fontSize: 10 }}>●</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {validSkus.length === 1 && (
-                <div style={{
-                  fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)",
-                  marginBottom: 12, padding: "4px 10px",
-                  background: "var(--color-background-secondary)",
-                  borderRadius: "var(--border-radius-md)", display: "inline-block"
-                }}>
-                  SKU: {validSkus[0].value}
-                </div>
-              )}
-
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ ...labelStyle, fontSize: 12 }}>
-                  Mês de início da produção
-                  {validSkus.length > 1 && currentSkuId && (
-                    <span style={{ color: "var(--color-text-info)", marginLeft: 6 }}>
-                      — {validSkus.find(s => s.id === currentSkuId)?.value}
-                    </span>
-                  )}
-                </label>
-                <input
-                  type="month"
-                  value={currentStartDate}
-                  onChange={e => updateStartDateBySku("prod", currentSkuId, e.target.value)}
-                  style={{ width: "auto" }}
-                />
-              </div>
-
-              <div style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-                gap: 10
-              }}>
-                {currentMonths.map((val, i) => (
-                  <div key={i}>
-                    <label style={{ display: "block", fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4, fontWeight: 500 }}>
-                      {getMonthLabel(currentStartDate, i)}
-                    </label>
-                    <input
-                      type="number"
-                      min=""
-                      value={val}
-                      onChange={e => updateMonthVal("prod", currentSkuId, i, e.target.value)}
-                      placeholder=""
-                      style={{ width: "100%", boxSizing: "border-box" }}
-                    />
-                  </div>
-                ))}
-              </div>
-              <p style={hintStyle}>Volume planejado de produção por mês (unidades), por SKU.</p>
-            </div>
-          );
-        })()}
-
-        {/* STEP 3: Sales plan */}
-        {step === 3 && (() => {
-          const validSkus = form.skus.filter(s => s.value.trim());
-          const currentSkuId = getActiveSkuId(activeSalesSkuId, "sales");
-          const currentMonths = (currentSkuId && form.salesMonthsBySku[currentSkuId])
-            ? form.salesMonthsBySku[currentSkuId]
-            : emptyMonthValues();
-          const currentStartDate = currentSkuId ? (form.salesStartDateBySku[currentSkuId] || "") : "";
-
-          return (
-            <div>
-              <label style={labelStyle}>Plano de vendas — 12 meses</label>
-
-              {/* Tabs de SKU */}
-              {validSkus.length > 1 && (
-                <div style={{
-                  display: "flex", gap: 6, flexWrap: "wrap",
-                  marginBottom: 16, borderBottom: "0.5px solid var(--color-border-tertiary)", paddingBottom: 10
-                }}>
-                  {validSkus.map(sku => {
-                    const isActive = sku.id === currentSkuId;
-                    const hasDate = !!(form.salesStartDateBySku[sku.id]);
-                    return (
-                      <button
-                        key={sku.id}
-                        type="button"
-                        onClick={() => setActiveSalesSkuId(sku.id)}
-                        style={{
-                          fontSize: 12, padding: "4px 12px", borderRadius: "var(--border-radius-md)",
-                          fontWeight: isActive ? 600 : 400,
-                          background: isActive ? "var(--color-background-info)" : "var(--color-background-secondary)",
-                          color: isActive ? "var(--color-text-info)" : "var(--color-text-secondary)",
-                          borderColor: isActive ? "var(--color-border-info)" : hasDate ? "var(--color-border-success)" : "var(--color-border-tertiary)",
-                        }}
-                      >
-                        {sku.value}
-                        {!hasDate && <span style={{ marginLeft: 4, color: "var(--color-text-danger)", fontSize: 10 }}>●</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {validSkus.length === 1 && (
-                <div style={{
-                  fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)",
-                  marginBottom: 12, padding: "4px 10px",
-                  background: "var(--color-background-secondary)",
-                  borderRadius: "var(--border-radius-md)", display: "inline-block"
-                }}>
-                  SKU: {validSkus[0].value}
-                </div>
-              )}
-
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ ...labelStyle, fontSize: 12 }}>
-                  Mês de início das vendas
-                  {validSkus.length > 1 && currentSkuId && (
-                    <span style={{ color: "var(--color-text-info)", marginLeft: 6 }}>
-                      — {validSkus.find(s => s.id === currentSkuId)?.value}
-                    </span>
-                  )}
-                </label>
-                <input
-                  type="month"
-                  value={currentStartDate}
-                  onChange={e => updateStartDateBySku("sales", currentSkuId, e.target.value)}
-                  style={{ width: "auto" }}
-                />
-              </div>
-
-              <div style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-                gap: 10
-              }}>
-                {currentMonths.map((val, i) => (
-                  <div key={i}>
-                    <label style={{ display: "block", fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4, fontWeight: 500 }}>
-                      {getMonthLabel(currentStartDate, i)}
-                    </label>
-                    <input
-                      type="number"
-                      min=""
-                      value={val}
-                      onChange={e => updateMonthVal("sales", currentSkuId, i, e.target.value)}
-                      placeholder=""
-                      style={{ width: "100%", boxSizing: "border-box" }}
-                    />
-                  </div>
-                ))}
-              </div>
-              <p style={hintStyle}>Volume planejado de vendas por mês (unidades), por SKU.</p>
-            </div>
-          );
-        })()}
-
-        {/* STEP 4: OM1 Target */}
-        {step === 4 && (
-          <div>
-            <label style={labelStyle}>OM1% Target</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+              <label style={labelStyle}>Nome do projeto</label>
               <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                value={form.om1Target}
-                onChange={e => update("om1Target", e.target.value)}
-                placeholder="Ex: 39.2"
-                style={{ width: 160 }}
+                type="text"
+                value={form.projectName}
+                onChange={e => update("projectName", e.target.value)}
+                placeholder="Ex: GWS 9-125"
+                style={{ ...inputBase, width: "100%", boxSizing: "border-box" }}
                 autoFocus
               />
-              <span style={{ fontSize: 16, color: "var(--color-text-secondary)" }}>%</span>
+              <p style={hintStyle}>Nome completo do projeto conforme aparece no dashboard. Obs: não adicionar a versão do projeto ao nome.</p>
             </div>
-            {form.om1Target !== "" && (
-              <div style={{
-                display: "inline-block",
-                background: "var(--color-background-info)",
-                color: "var(--text-info)",
-                borderRadius: "var(--border-radius-md)",
-                padding: "4px 12px",
-                fontSize: 13,
-                fontWeight: 500,
-                marginTop: 4
-              }}>
-                {parseFloat(form.om1Target).toFixed(1)}% de target
+          )}
+
+          {/* STEP 1: Versões */}
+          {step === 1 && (
+            <div>
+              <label style={labelStyle}>Versões do projeto</label>
+              <p style={hintStyle}>Defina as versões disponíveis (ex: tipo de bateria, tipo de embalagem).</p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16, marginTop: 14 }}>
+                {form.versions.map((version) => (
+                  <div key={version.id} style={{
+                    display: "flex", gap: 10, alignItems: "flex-start",
+                    backgroundColor: B.bgGray, padding: "14px",
+                    borderRadius: 4, border: `1px solid ${B.border}`
+                  }}>
+                    <div style={{ display: "flex", gap: 10, flex: 1 }}>
+                      <select
+                        value={version.type}
+                        onChange={e => updateVersion(version.id, "type", e.target.value)}
+                        style={{ flex: 1, height: 38, fontSize: 13, borderRadius: 3, border: `1px solid ${B.border}`, padding: "0 8px", fontFamily: "inherit" }}
+                      >
+                        <option value="" disabled>Selecione a Versão...</option>
+                        {VERSION_TYPES.map(vt => <option key={vt} value={vt}>{vt}</option>)}
+                      </select>
+                      <select
+                        value={version.packaging}
+                        onChange={e => updateVersion(version.id, "packaging", e.target.value)}
+                        style={{ flex: 1, height: 38, fontSize: 13, borderRadius: 3, border: `1px solid ${B.border}`, padding: "0 8px", fontFamily: "inherit" }}
+                      >
+                        <option value="" disabled>Selecione o Packaging...</option>
+                        {PACKAGING_TYPES.map(pt => <option key={pt} value={pt}>{pt}</option>)}
+                      </select>
+                    </div>
+                    {form.versions.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeVersion(version.id)}
+                        style={{ ...btnGhost, color: B.red, border: `1px solid ${B.border}` }}
+                        title="Remover Versão"
+                      >
+                        <i className="ti ti-trash" aria-hidden="true"></i>
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
-            )}
-            <p style={hintStyle}>Indicador OM1% target do projeto. Valor percentual (ex: 39.2 para 39,2%).</p>
-          </div>
-        )}
 
-        {/* STEP 5: Datas MAV e SOL individuais por SKU e País */}
-        {step === 5 && (() => {
-          const validSkus = form.skus.filter(s => s.value.trim());
+              <button type="button" onClick={addVersion} style={{ ...btnBase, fontSize: 13 }}>
+                <i className="ti ti-plus" aria-hidden="true"></i> Adicionar versão
+              </button>
+            </div>
+          )}
 
-          if (validSkus.length === 0 || validSkus.every(s => !s.countries || s.countries.length === 0)) {
+          {/* STEP 2: SKUs */}
+          {step === 2 && (() => {
+            const filledSkus = form.skus.filter(s => s.value.trim());
+            const skusWithoutCountry = filledSkus.filter(s => !s.countries || s.countries.length === 0);
+            const skusIncomplete = filledSkus.filter(s => !isSkuComplete(s.value));
+
             return (
               <div>
-                <label style={labelStyle}>Datas planejadas</label>
-                <p style={hintStyle}>Você precisa adicionar SKUs e selecionar os países no Passo 2 antes de definir as datas.</p>
+                <label style={labelStyle}>SKUs por Versão</label>
+                <p style={hintStyle}>Adicione os códigos de SKU para cada versão configurada.</p>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 18, marginBottom: 12, marginTop: 16 }}>
+                  {form.versions.map(version => {
+                    const versionSkus = form.skus.filter(s => s.versionId === version.id);
+                    return (
+                      <div key={version.id} style={{
+                        backgroundColor: B.bgGray,
+                        border: `1px solid ${B.border}`,
+                        borderLeft: `3px solid ${B.blue}`,
+                        borderRadius: 4,
+                        padding: "14px 16px"
+                      }}>
+                        <h4 style={{ margin: "0 0 12px 0", fontSize: 13, color: B.textSec, fontWeight: 700, letterSpacing: "0.01em" }}>
+                          {version.type || "Sem Versão"}
+                          <span style={{ color: B.textTer, fontWeight: 400 }}> · {version.packaging || "Sem Embalagem"}</span>
+                        </h4>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {versionSkus.map((sku, i) => (
+                            <div key={sku.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <input
+                                type="text"
+                                value={sku.value}
+                                onChange={e => updateSku(sku.id, "value", maskSku(e.target.value))}
+                                placeholder="SKU — ex: 0601.9N4.3E1"
+                                maxLength={12}
+                                style={{ ...inputBase, flex: 1 }}
+                                autoFocus={i === versionSkus.length - 1 && i > 0}
+                              />
+                              <CountryDropdown skuId={sku.id} selected={sku.countries || []} />
+                              {versionSkus.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeSku(sku.id)}
+                                  style={{ ...btnGhost, color: B.red, border: `1px solid ${B.border}` }}
+                                  title="Remover SKU"
+                                >
+                                  <i className="ti ti-trash" aria-hidden="true"></i>
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => addSkuToVersion(version.id)}
+                          style={{ ...btnGhost, fontSize: 12, marginTop: 10, color: B.textSec, padding: 0, border: "none" }}
+                        >
+                          <i className="ti ti-plus" aria-hidden="true"></i> Adicionar SKU nesta versão
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {skusWithoutCountry.length > 0 && filledSkus.length > 0 && (
+                  <div style={{
+                    marginTop: 14, backgroundColor: "#fff8e1",
+                    border: "1px solid #f9a825", borderRadius: 3,
+                    padding: "10px 14px", fontSize: 12,
+                    color: "#b45309", display: "flex", alignItems: "flex-start", gap: 8
+                  }}>
+                    <i className="ti ti-alert-triangle" aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }}></i>
+                    <span>Os SKUs preenchidos precisam ter pelo menos um país selecionado para avançar.</span>
+                  </div>
+                )}
+
+                {skusIncomplete.length > 0 && (
+                  <div style={{
+                    marginTop: 14, backgroundColor: "#fff8e1",
+                    border: "1px solid #f9a825", borderRadius: 3,
+                    padding: "10px 14px", fontSize: 12,
+                    color: "#b45309", display: "flex", alignItems: "flex-start", gap: 8
+                  }}>
+                    <i className="ti ti-alert-triangle" aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }}></i>
+                    <span>O SKU deve conter 10 caracteres no formato 0000.000.000.</span>
+                  </div>
+                )}
               </div>
             );
-          }
+          })()}
 
-          return (
-            <div>
-              <label style={labelStyle}>Datas planejadas (MAV / SOL por País)</label>
-              <p style={hintStyle}>Informe as datas planejadas de MAV e SOL para cada país em cada SKU. (Opcional)</p>
+          {/* STEP 3: Production */}
+          {step === 3 && (() => {
+            const validSkus = form.skus.filter(s => s.value.trim());
+            const currentSkuId = getActiveSkuId(activeProdSkuId, "prod");
+            const currentMonths = (currentSkuId && form.productionMonthsBySku[currentSkuId])
+              ? form.productionMonthsBySku[currentSkuId]
+              : emptyMonthValues();
+            const currentStartDate = currentSkuId ? (form.productionStartDateBySku[currentSkuId] || "") : "";
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 24, marginTop: 16 }}>
-                {validSkus.map(sku => {
-                  if (!sku.countries || sku.countries.length === 0) return null;
+            return (
+              <div>
+                <label style={labelStyle}>Plano de produção — 12 meses</label>
 
-                  return (
-                    <div key={sku.id} style={{
-                      background: "var(--color-background-secondary)",
-                      borderRadius: "var(--border-radius-lg)",
-                      padding: "1.25rem",
-                      border: "0.5px solid var(--color-border-tertiary)"
-                    }}>
-                      <h4 style={{ margin: "0 0 12px 0", fontSize: 14, color: "var(--color-text-primary)", fontWeight: 600 }}>
-                        SKU: {sku.value}
-                      </h4>
-
-                      {/* Tabela Simplificada */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 12, marginBottom: 8, fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)" }}>
-                        <div>País</div>
-                        <div>Data MAV</div>
-                        <div>Data SOL</div>
-                      </div>
-
-                      {sku.countries.map(code => {
-                        const countryObj = COUNTRIES.find(c => c.code === code);
-                        const countryLabel = countryObj ? countryObj.label : code;
-                        const mavVal = form.mavDates?.[sku.id]?.[code] || "";
-                        const solVal = form.solDates?.[sku.id]?.[code] || "";
-
-                        return (
-                          <div key={code} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 12, alignItems: "center", marginBottom: 8 }}>
-                            <div style={{ fontSize: 13, color: "var(--color-text-primary)" }}>
-                              {countryLabel}
-                            </div>
-                            <input
-                              type="month"
-                              value={mavVal}
-                              onChange={e => updateCountryDate("mav", sku.id, code, e.target.value)}
-                              style={{ width: "100%", fontSize: 12, padding: "6px" }}
-                            />
-                            <input
-                              type="month"
-                              value={solVal}
-                              onChange={e => updateCountryDate("sol", sku.id, code, e.target.value)}
-                              style={{ width: "100%", fontSize: 12, padding: "6px" }}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* STEP 6: Review */}
-        {step === 6 && (
-          <div>
-            <h3 style={{ margin: "0 0 1rem", fontSize: 15, fontWeight: 500 }}>Revisão dos dados</h3>
-
-            <ReviewRow label="Projeto" value={form.projectName} />
-            <ReviewRow label="SKUs" value={
-              form.skus.filter(s => s.value).map(s =>
-                s.countries && s.countries.length > 0
-                  ? `${s.value} (${s.countries.join(", ")})`
-                  : s.value
-              ).join(", ")
-            } />
-            
-            {form.skus.filter(s => s.value.trim()).map(sku => {
-              const prodMonths = form.productionMonthsBySku[sku.id] || emptyMonthValues();
-              const prodStartDate = (form.productionStartDateBySku && form.productionStartDateBySku[sku.id]) || "";
-              return (
-                <div key={sku.id} style={{ marginBottom: 12 }}>
-                  <span style={reviewLabelStyle}>
-                    Produção — {sku.value}
-                    {prodStartDate && <span style={{ fontWeight: 400, marginLeft: 6 }}>({prodStartDate})</span>}
-                  </span>
+                {validSkus.length > 1 && (
                   <div style={{
-                    display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, marginTop: 4
+                    display: "flex", gap: 6, flexWrap: "wrap",
+                    marginBottom: 16, borderBottom: `1px solid ${B.border}`, paddingBottom: 10
                   }}>
-                    {prodMonths.map((v, i) => (
-                      <div key={i} style={{
-                        background: "var(--color-background-secondary)",
-                        borderRadius: "var(--border-radius-md)",
-                        padding: "4px 6px",
-                        textAlign: "center"
-                      }}>
-                        <div style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{getMonthLabel(prodStartDate, i)}</div>
-                        <div style={{ fontSize: 13, fontWeight: 500 }}>{v || 0}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-            
-            {form.skus.filter(s => s.value.trim()).map(sku => {
-              const salesMonths = form.salesMonthsBySku[sku.id] || emptyMonthValues();
-              const salesStartDate = (form.salesStartDateBySku && form.salesStartDateBySku[sku.id]) || "";
-              return (
-                <div key={sku.id} style={{ marginBottom: 12 }}>
-                  <span style={reviewLabelStyle}>
-                    Vendas — {sku.value}
-                    {salesStartDate && <span style={{ fontWeight: 400, marginLeft: 6 }}>({salesStartDate})</span>}
-                  </span>
-                  <div style={{
-                    display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4, marginTop: 4
-                  }}>
-                    {salesMonths.map((v, i) => (
-                      <div key={i} style={{
-                        background: "var(--color-background-secondary)",
-                        borderRadius: "var(--border-radius-md)",
-                        padding: "4px 6px",
-                        textAlign: "center"
-                      }}>
-                        <div style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{getMonthLabel(salesStartDate, i)}</div>
-                        <div style={{ fontSize: 13, fontWeight: 500 }}>{v || 0}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-            
-            <ReviewRow label="OM1% Target" value={`${parseFloat(form.om1Target || 0).toFixed(1)}%`} />
-            
-            {/* Listagem detalhada das Datas por SKU/País na Revisão */}
-            <div style={{ marginTop: 16 }}>
-              <span style={reviewLabelStyle}>Prazos de MAV / SOL por País</span>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
-                {form.skus.filter(s => s.value.trim()).map(sku => (
-                  <div key={sku.id} style={{ background: "var(--color-background-secondary)", padding: "8px 12px", borderRadius: "var(--border-radius-md)" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>SKU: {sku.value}</div>
-                    {(sku.countries || []).map(code => {
-                      const countryObj = COUNTRIES.find(c => c.code === code);
-                      const countryLabel = countryObj ? countryObj.label : code;
-                      
-                      const mav = form.mavDates?.[sku.id]?.[code];
-                      const sol = form.solDates?.[sku.id]?.[code];
-                      
-                      const format = (d) => {
-                        if (!d) return "—";
-                        const [y, m] = d.split("-");
-                        return `${MONTH_NAMES[parseInt(m, 10) - 1]}/${String(y).slice(2)}`;
-                      };
-
+                    {validSkus.map(sku => {
+                      const isActive = sku.id === currentSkuId;
+                      const hasDate = !!(form.productionStartDateBySku[sku.id]);
                       return (
-                        <div key={code} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0", color: "var(--color-text-secondary)" }}>
-                          <span>{countryLabel}</span>
-                          <span>MAV: {format(mav)} | SOL: {format(sol)}</span>
-                        </div>
+                        <button
+                          key={sku.id}
+                          type="button"
+                          onClick={() => setActiveProdSkuId(sku.id)}
+                          style={{
+                            ...btnBase,
+                            fontSize: 12, padding: "4px 12px",
+                            fontWeight: isActive ? 700 : 500,
+                            backgroundColor: isActive ? B.red : B.bgGray,
+                            color: isActive ? "#fff" : B.textSec,
+                            borderColor: isActive ? B.red : hasDate ? B.borderGreen : B.border,
+                          }}
+                        >
+                          {sku.value}
+                          {!hasDate && <span style={{ marginLeft: 4, color: isActive ? "#ffaaaa" : B.red, fontSize: 10 }}>●</span>}
+                        </button>
                       );
                     })}
                   </div>
-                ))}
+                )}
+
+                {validSkus.length === 1 && (
+                  <div style={{
+                    fontSize: 12, fontWeight: 600, color: B.textSec,
+                    marginBottom: 12, padding: "5px 10px",
+                    backgroundColor: B.blueBg,
+                    borderRadius: 3, display: "inline-block",
+                    border: `1px solid ${B.blueBorder}`
+                  }}>
+                    SKU: {validSkus[0].value}
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ ...labelStyle, fontSize: 12 }}>Mês de início da produção</label>
+                  <input
+                    type="month"
+                    value={currentStartDate}
+                    onChange={e => updateStartDateBySku("prod", currentSkuId, e.target.value)}
+                    style={{ ...inputBase, width: "auto" }}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+                  {currentMonths.map((val, i) => (
+                    <div key={i}>
+                      <label style={{ display: "block", fontSize: 11, color: B.textPri, marginBottom: 4, fontWeight: 600 }}>
+                        {getMonthLabel(currentStartDate, i)}
+                      </label>
+                      <input
+                        type="number" min="0" value={val}
+                        onChange={e => updateMonthVal("prod", currentSkuId, i, e.target.value)}
+                        onPaste={e => handleMonthPaste(e, "prod", currentSkuId, i)}
+                        style={{ ...inputBase, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* STEP 4: Sales */}
+          {step === 4 && (() => {
+            const validSkus = form.skus.filter(s => s.value.trim());
+            const currentSkuId = getActiveSkuId(activeSalesSkuId, "sales");
+            const currentMonths = (currentSkuId && form.salesMonthsBySku[currentSkuId])
+              ? form.salesMonthsBySku[currentSkuId]
+              : emptyMonthValues();
+            const currentStartDate = currentSkuId ? (form.salesStartDateBySku[currentSkuId] || "") : "";
+
+            return (
+              <div>
+                <label style={labelStyle}>Plano de vendas — 12 meses</label>
+
+                {validSkus.length > 1 && (
+                  <div style={{
+                    display: "flex", gap: 6, flexWrap: "wrap",
+                    marginBottom: 16, borderBottom: `1px solid ${B.border}`, paddingBottom: 10
+                  }}>
+                    {validSkus.map(sku => {
+                      const isActive = sku.id === currentSkuId;
+                      const hasDate = !!(form.salesStartDateBySku[sku.id]);
+                      return (
+                        <button
+                          key={sku.id}
+                          type="button"
+                          onClick={() => setActiveSalesSkuId(sku.id)}
+                          style={{
+                            ...btnBase,
+                            fontSize: 12, padding: "4px 12px",
+                            fontWeight: isActive ? 700 : 500,
+                            backgroundColor: isActive ? B.red : B.bgGray,
+                            color: isActive ? "#fff" : B.textSec,
+                            borderColor: isActive ? B.red : hasDate ? B.borderGreen : B.border,
+                          }}
+                        >
+                          {sku.value}
+                          {!hasDate && <span style={{ marginLeft: 4, color: isActive ? "#ffaaaa" : B.red, fontSize: 10 }}>●</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+              {validSkus.length === 1 && (
+              <div style={{
+                fontSize: 12, fontWeight: 600, color: B.textSec,
+                marginBottom: 12, padding: "5px 10px",
+                backgroundColor: B.blueBg,
+                borderRadius: 3, display: "inline-block",
+                border: `1px solid ${B.blueBorder}`
+              }}>
+                SKU: {validSkus[0].value}
+              </div>
+              )}
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ ...labelStyle, fontSize: 12 }}>Mês de início das vendas</label>
+                  <input
+                    type="month"
+                    value={currentStartDate}
+                    onChange={e => updateStartDateBySku("sales", currentSkuId, e.target.value)}
+                    style={{ ...inputBase, width: "auto" }}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+                  {currentMonths.map((val, i) => (
+                    <div key={i}>
+                      <label style={{ display: "block", fontSize: 11, color: B.textPri, marginBottom: 4, fontWeight: 600 }}>
+                        {getMonthLabel(currentStartDate, i)}
+                      </label>
+                      <input
+                        type="number" min="0" value={val}
+                        onChange={e => updateMonthVal("sales", currentSkuId, i, e.target.value)}
+                        onPaste={e => handleMonthPaste(e, "sales", currentSkuId, i)}
+                        style={{ ...inputBase, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* STEP 5: OM1 Target */}
+          {step === 5 && (
+            <div>
+              <label style={labelStyle}>OM1% Target</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <input
+                  type="number" min="0" max="100" step="0.1"
+                  value={form.om1Target}
+                  onChange={e => update("om1Target", e.target.value)}
+                  placeholder="Ex: 39.2"
+                  style={{ ...inputBase, width: 160 }}
+                  autoFocus
+                />
+                <span style={{ fontSize: 16, color: B.textSec, fontWeight: 700 }}>%</span>
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* Navigation */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <button
-          type="button"
-          onClick={() => setStep(s => s - 1)}
-          disabled={step === 0}
-          style={{ opacity: step === 0 ? 0.3 : 1, display: "flex", alignItems: "center", gap: 6 }}
-        >
-          <i className="ti ti-arrow-left" aria-hidden="true"></i> Voltar
-        </button>
 
-        <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>
-          {step + 1} / {STEPS.length}
-        </span>
+          {/* STEP 6: RuQ Target */}
+          {step === 6 && (
+            <div>
+              <label style={labelStyle}>RuQ% Target</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <input
+                  type="number" min="0" max="100" step="0.1"
+                  value={form.ruqTarget}
+                  onChange={e => update("ruqTarget", e.target.value)}
+                  placeholder="Ex: 39.2"
+                  style={{ ...inputBase, width: 160 }}
+                  autoFocus
+                />
+                <span style={{ fontSize: 16, color: B.textSec, fontWeight: 700 }}>%</span>
+              </div>
+            </div>
+          )}
 
-        {step < STEPS.length - 1 ? (
+          {/* STEP 7: MAV / SOL dates */}
+          {step === 7 && (() => {
+            const validSkus = form.skus.filter(s => s.value.trim());
+            if (validSkus.length === 0 || validSkus.every(s => !s.countries || s.countries.length === 0)) {
+              return (
+                <div>
+                  <label style={labelStyle}>Datas planejadas</label>
+                  <p style={hintStyle}>Você precisa adicionar SKUs e selecionar os países para definir as datas.</p>
+                </div>
+              );
+            }
+            return (
+              <div>
+                <label style={labelStyle}>Datas planejadas (MAV / SOL por País)</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 20, marginTop: 16 }}>
+                  {validSkus.map(sku => {
+                    if (!sku.countries || sku.countries.length === 0) return null;
+                    return (
+                      <div key={sku.id} style={{
+                        backgroundColor: B.bg,
+                        borderRadius: 4,
+                        padding: "1.25rem",
+                        border: `1px solid ${B.border}`,
+                        borderLeft: `3px solid ${B.red}`
+                      }}>
+                        <h4 style={{ margin: "0 0 12px 0", fontSize: 13, color: B.textPri, fontWeight: 700 }}>
+                          SKU: <span style={{ color: B.blue }}>{sku.value}</span>
+                        </h4>
+                        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 12, marginBottom: 8, fontSize: 11, fontWeight: 700, color: B.textPri, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                          <div>País</div><div>Data MAV</div><div>Data SOL</div>
+                        </div>
+                        {sku.countries.map(code => {
+                          const countryObj = COUNTRIES.find(c => c.code === code);
+                          return (
+                            <div key={code} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                              <div style={{ fontSize: 13, color: B.textPri }}>{countryObj ? countryObj.label : code}</div>
+                              <input type="month" value={form.mavDates?.[sku.id]?.[code] || ""} onChange={e => updateCountryDate("mav", sku.id, code, e.target.value)} style={{ ...inputBase, width: "100%", fontSize: 12, padding: "6px 8px", boxSizing: "border-box" }} />
+                              <input type="month" value={form.solDates?.[sku.id]?.[code] || ""} onChange={e => updateCountryDate("sol", sku.id, code, e.target.value)} style={{ ...inputBase, width: "100%", fontSize: 12, padding: "6px 8px", boxSizing: "border-box" }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* STEP 8: Review */}
+          {step === 8 && (
+            <div>
+              <h3 style={{ margin: "0 0 1rem", fontSize: 15, fontWeight: 700, color: B.textPri }}>
+                Revisão dos dados
+              </h3>
+              <ReviewRow label="Projeto" value={form.projectName} />
+
+              <div style={{ marginTop: 16, marginBottom: 16 }}>
+                <span style={reviewLabelStyle}>Versões e SKUs mapeados</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                  {form.versions.map(version => {
+                    const vSkus = form.skus.filter(s => s.versionId === version.id && s.value.trim());
+                    if (vSkus.length === 0) return null;
+                    return (
+                      <div key={version.id} style={{
+                        backgroundColor: B.bg, padding: "10px 12px",
+                        borderRadius: 3, borderLeft: `3px solid ${B.red}`
+                      }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: B.textPri, marginBottom: 4 }}>
+                          {version.type || "N/A"} · {version.packaging || "N/A"}
+                        </div>
+                        <div style={{ fontSize: 12, color: B.textPri }}>
+                          {vSkus.map(s => `${s.value} (${(s.countries || []).join(", ")})`).join(" | ")}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <ReviewRow label="OM1% Target" value={`${parseFloat(form.om1Target || 0).toFixed(1)}%`} />
+              <ReviewRow label="RuQ% Target" value={`${parseFloat(form.ruqTarget || 0).toFixed(1)}%`} />
+            </div>
+          )}
+        </div>
+
+        {/* ── Navigation ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <button
             type="button"
-            onClick={() => setStep(s => s + 1)}
-            disabled={!canNext()}
-            style={{ display: "flex", alignItems: "center", gap: 6, opacity: canNext() ? 1 : 0.35 }}
-          >
-            Próximo <i className="ti ti-arrow-right" aria-hidden="true"></i>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={saving}
+            onClick={() => setStep(s => s - 1)}
+            disabled={step === 0}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
-              background: saving ? "var(--color-background-secondary)" : "var(--color-background-success)",
-              color: saving ? "var(--color-text-tertiary)" : "var(--color-text-success)",
-              borderColor: saving ? "var(--color-border-tertiary)" : "var(--color-border-success)",
-              opacity: saving ? 0.7 : 1,
+              ...btnBase,
+              opacity: step === 0 ? 0.3 : 1,
+              cursor: step === 0 ? "not-allowed" : "pointer"
             }}
           >
-            {saving
-              ? <><i className="ti ti-loader-2" aria-hidden="true" style={{ animation: "spin 1s linear infinite" }}></i> Salvando...</>
-              : <><i className="ti ti-check" aria-hidden="true"></i> Salvar projeto</>
-            }
+            <i className="ti ti-arrow-left" aria-hidden="true"></i> Voltar
           </button>
-        )}
+
+          <span style={{ fontSize: 12, color: B.textPri, fontWeight: 600 }}>
+            {step + 1} / {STEPS.length}
+          </span>
+
+          {step < STEPS.length - 1 ? (
+            <button
+              type="button"
+              onClick={() => setStep(s => s + 1)}
+              disabled={!canNext()}
+              style={{
+                ...btnPrimary,
+                opacity: canNext() ? 1 : 0.35,
+                cursor: canNext() ? "pointer" : "not-allowed"
+              }}
+            >
+              Próximo <i className="ti ti-arrow-right" aria-hidden="true"></i>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={saving}
+              style={{
+                ...btnPrimary,
+                backgroundColor: saving ? B.bgGray : B.red,
+                color: saving ? B.textTer : "#fff",
+                borderColor: saving ? B.border : B.red,
+                opacity: saving ? 0.7 : 1,
+                cursor: saving ? "not-allowed" : "pointer"
+              }}
+            >
+              {saving
+                ? <><i className="ti ti-loader-2" aria-hidden="true" style={{ animation: "spin 1s linear infinite" }}></i> Salvando...</>
+                : <><i className="ti ti-check" aria-hidden="true"></i> Salvar projeto</>
+              }
+            </button>
+          )}
+        </div>
       </div>
-    </div>
-  );
-}
-
-const labelStyle = {
-  display: "block",
-  fontSize: 13,
-  fontWeight: 500,
-  marginBottom: 8,
-  color: "var(--color-text-primary)"
-};
-
-const hintStyle = {
-  fontSize: 12,
-  color: "var(--color-text-tertiary)",
-  marginTop: 8,
-  marginBottom: 0
-};
-
-const reviewLabelStyle = {
-  fontSize: 12,
-  color: "var(--color-text-secondary)",
-  fontWeight: 500,
-};
-
-// Componente simples para linhas de revisão estáticas
-function ReviewRow({ label, value }) {
-  return (
-    <div style={{
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "flex-start",
-      padding: "8px 0",
-      borderBottom: "0.5px solid var(--color-border-tertiary)",
-      marginBottom: 4,
-      gap: 12
-    }}>
-      <span style={{ fontSize: 13, color: "var(--color-text-secondary)", minWidth: 120 }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: 500, textAlign: "right", wordBreak: "break-word" }}>{value}</span>
     </div>
   );
 }
