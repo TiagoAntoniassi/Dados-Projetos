@@ -1219,7 +1219,7 @@ function ProjectDataCollector() {
             <i className="ti ti-arrow-left" aria-hidden="true"></i> Voltar
           </button>
 
-          <span style={{ fontSize: 12, color: B.textPri, fontWeight: 600 }}>
+          <span style={{ fontSize: 12, color: B.textSec, fontWeight: 600 }}>
             {step + 1} / {STEPS.length}
           </span>
 
