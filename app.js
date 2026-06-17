@@ -175,6 +175,7 @@ function createInitialState() {
     ruqTarget: "",
     mavDates: {},
     solDates: {},
+    mavVolumes: {},
   };
 }
 
@@ -215,6 +216,7 @@ function ReviewRow({ label, value }) {
 
 // ── Main Component ─────────────────────────────────────────────
 function ProjectDataCollector() {
+  const [reviewDetailsOpen, setReviewDetailsOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(createInitialState);
   const [submitted, setSubmitted] = useState(false);
@@ -226,6 +228,7 @@ function ProjectDataCollector() {
   const [activeSalesSkuId, setActiveSalesSkuId] = useState(null);
   const [pasteSuccess, setPasteSuccess] = useState(null);
   const [expandedVersions, setExpandedVersions] = useState({});
+
   
 
   const update = (field, value) => setForm(f => ({ ...f, [field]: value }));
@@ -257,10 +260,12 @@ function ProjectDataCollector() {
       const newSalesDates = { ...f.salesStartDateBySku };
       const newMavDates = { ...f.mavDates };
       const newSolDates = { ...f.solDates };
+      const newMavVolumes = { ...f.mavVolumes };
       skusToRemove.forEach(id => {
         delete newProd[id]; delete newSales[id];
         delete newProdDates[id]; delete newSalesDates[id];
         delete newMavDates[id]; delete newSolDates[id];
+        delete newMavVolumes[id];
       });
       return {
         ...f,
@@ -269,6 +274,7 @@ function ProjectDataCollector() {
         productionMonthsBySku: newProd, salesMonthsBySku: newSales,
         productionStartDateBySku: newProdDates, salesStartDateBySku: newSalesDates,
         mavDates: newMavDates, solDates: newSolDates,
+        mavVolumes: newMavVolumes,
       };
     });
   };
@@ -294,15 +300,18 @@ function ProjectDataCollector() {
       const newSalesDates = { ...f.salesStartDateBySku };
       const newMavDates = { ...f.mavDates };
       const newSolDates = { ...f.solDates };
+      const newMavVolumes = { ...f.mavVolumes };
       delete newProd[id]; delete newSales[id];
       delete newProdDates[id]; delete newSalesDates[id];
       delete newMavDates[id]; delete newSolDates[id];
+      delete newMavVolumes[id];
       return {
         ...f,
         skus: f.skus.filter(s => s.id !== id),
         productionMonthsBySku: newProd, salesMonthsBySku: newSales,
         productionStartDateBySku: newProdDates, salesStartDateBySku: newSalesDates,
         mavDates: newMavDates, solDates: newSolDates,
+        mavVolumes: newMavVolumes,
       };
     });
 
@@ -358,6 +367,13 @@ function ProjectDataCollector() {
     setTimeout(() => setPasteSuccess(null), 2000);
   };
 
+  const updateMavVolume = (skuId, countryCode, value) => {
+    setForm(f => {
+      const skuVolumes = f.mavVolumes[skuId] || {};
+      return { ...f, mavVolumes: { ...f.mavVolumes, [skuId]: { ...skuVolumes, [countryCode]: value } } };
+    });
+  };
+
   const updateCountryDate = (type, skuId, countryCode, value) => {
     const key = type === "mav" ? "mavDates" : "solDates";
     setForm(f => {
@@ -365,6 +381,7 @@ function ProjectDataCollector() {
       return { ...f, [key]: { ...f[key], [skuId]: { ...skuDates, [countryCode]: value } } };
     });
   };
+  
   
 
   // ── CountryDropdown ──────────────────────────────────────────
@@ -684,6 +701,26 @@ function ProjectDataCollector() {
          margin: "0 auto",
           padding: "2rem 1rem",
           position: "relative", zIndex: 1 }}>
+
+        {/* ── Footer fixo ── */}
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        backgroundColor: B.dark,
+        height: 44,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        gap: 10,
+        boxShadow: "0 -2px 8px rgba(0,0,0,0.35)",
+        zIndex: 2
+      }}>
+        <img
+          src="https://upload.wikimedia.org/wikipedia/commons/1/16/Bosch-logo.svg"
+          alt="Bosch"
+          style={{ height: 16, backgroundColor: "white", padding: "2px 8px", borderRadius: 8 }}
+        />
+        <span style={{ fontSize: 11, color: B.textTer }}>
+          © {new Date().getFullYear()} — Cadastro de Projeto
+        </span>
+      </div>  
 
         {/* ── Page title ── */}
         <div style={{ marginBottom: "1.75rem" }}>
@@ -1133,32 +1170,66 @@ function ProjectDataCollector() {
               <div>
                 <label style={labelStyle}>Datas planejadas (MAV / SOL por País)</label>
                 <div style={{ display: "flex", flexDirection: "column", gap: 20, marginTop: 16 }}>
-                  {validSkus.map(sku => {
-                    if (!sku.countries || sku.countries.length === 0) return null;
+                  {form.versions.map(version => {
+                    const versionSkus = form.skus.filter(s => s.versionId === version.id && s.value.trim() && s.countries && s.countries.length > 0);
+                    if (versionSkus.length === 0) return null;
                     return (
-                      <div key={sku.id} style={{
-                        backgroundColor: B.bg,
-                        borderRadius: 4,
-                        padding: "1.25rem",
+                      <div key={version.id} style={{
+                        backgroundColor: B.bgGray,
                         border: `1px solid ${B.border}`,
-                        borderLeft: `3px solid ${B.red}`
+                        borderLeft: `3px solid ${B.blue}`,
+                        borderRadius: 4,
+                        padding: "14px 16px"
                       }}>
-                        <h4 style={{ margin: "0 0 12px 0", fontSize: 13, color: B.textPri, fontWeight: 700 }}>
-                          SKU: <span style={{ color: B.blue }}>{sku.value}</span>
+                        <h4 style={{ margin: "0 0 12px 0", fontSize: 13, color: B.textSec, fontWeight: 700, letterSpacing: "0.01em" }}>
+                          {version.type || "Sem Versão"}
+                          <span style={{ color: B.textTer, fontWeight: 400 }}> · {version.packaging || "Sem Embalagem"}</span>
                         </h4>
-                        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 12, marginBottom: 8, fontSize: 11, fontWeight: 700, color: B.textPri, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                          <div>País</div><div>Data MAV</div><div>Data SOL</div>
-                        </div>
-                        {sku.countries.map(code => {
-                          const countryObj = COUNTRIES.find(c => c.code === code);
-                          return (
-                            <div key={code} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 12, alignItems: "center", marginBottom: 8 }}>
-                              <div style={{ fontSize: 13, color: B.textPri }}>{countryObj ? countryObj.label : code}</div>
-                              <input type="month" value={form.mavDates?.[sku.id]?.[code] || ""} onChange={e => updateCountryDate("mav", sku.id, code, e.target.value)} style={{ ...inputBase, width: "100%", fontSize: 12, padding: "6px 8px", boxSizing: "border-box" }} />
-                              <input type="month" value={form.solDates?.[sku.id]?.[code] || ""} onChange={e => updateCountryDate("sol", sku.id, code, e.target.value)} style={{ ...inputBase, width: "100%", fontSize: 12, padding: "6px 8px", boxSizing: "border-box" }} />
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                          {versionSkus.map(sku => (
+                            <div key={sku.id} style={{
+                              backgroundColor: B.bg,
+                              borderRadius: 4,
+                              padding: "1.25rem",
+                              border: `1px solid ${B.border}`,
+                            }}>
+                              <h5 style={{ margin: "0 0 12px 0", fontSize: 13, color: B.textPri, fontWeight: 700 }}>
+                                SKU: <span style={{ color: B.blue }}>{sku.value}</span>
+                              </h5>
+                              <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr 1fr", gap: 12, marginBottom: 8, fontSize: 11, fontWeight: 700, color: B.textPri, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                <div>País</div><div>Data MAV</div><div>Volume MAV</div><div>Data SOL</div>
+                              </div>
+                              {sku.countries.map(code => {
+                                const countryObj = COUNTRIES.find(c => c.code === code);
+                                return (
+                                  <div key={code} style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr 1fr", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                                    <div style={{ fontSize: 13, color: B.textPri }}>{countryObj ? countryObj.label : code}</div>
+                                    <input
+                                      type="month"
+                                      value={form.mavDates?.[sku.id]?.[code] || ""}
+                                      onChange={e => updateCountryDate("mav", sku.id, code, e.target.value)}
+                                      style={{ ...inputBase, width: "100%", fontSize: 12, padding: "6px 8px", boxSizing: "border-box" }}
+                                    />
+                                    <input
+                                      type="number" min="0"
+                                      value={form.mavVolumes?.[sku.id]?.[code] || ""}
+                                      onChange={e => updateMavVolume(sku.id, code, e.target.value)}
+                                      placeholder="Volume"
+                                      style={{ ...inputBase, width: "100%", fontSize: 12, padding: "6px 8px", boxSizing: "border-box" }}
+                                    />
+                                    <input
+                                      type="month"
+                                      value={form.solDates?.[sku.id]?.[code] || ""}
+                                      onChange={e => updateCountryDate("sol", sku.id, code, e.target.value)}
+                                      style={{ ...inputBase, width: "100%", fontSize: 12, padding: "6px 8px", boxSizing: "border-box" }}
+                                    />
+                                  </div>
+                                );
+                              })}
                             </div>
-                          );
-                        })}
+                          ))}
+                        </div>
                       </div>
                     );
                   })}
@@ -1167,7 +1238,7 @@ function ProjectDataCollector() {
             );
           })()}
 
-          {/* STEP 8: Review */}
+           {/* STEP 8: Review */}
           {step === 8 && (
             <div>
               <h3 style={{ margin: "0 0 1rem", fontSize: 15, fontWeight: 700, color: B.textPri }}>
@@ -1196,6 +1267,137 @@ function ProjectDataCollector() {
                     );
                   })}
                 </div>
+              </div>
+
+              {/* ── Seção colapsável: Produção / Vendas / MAV-SOL ── */}
+              <div style={{ marginTop: 16, marginBottom: 16 }}>
+                <div
+                  onClick={() => setReviewDetailsOpen(o => !o)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    cursor: "pointer", userSelect: "none"
+                  }}
+                >
+                  <span style={reviewLabelStyle}>Detalhes de produção, vendas e datas</span>
+                  <i
+                    className={`ti ti-chevron-${reviewDetailsOpen ? "up" : "down"}`}
+                    aria-hidden="true"
+                    style={{ fontSize: 16, color: B.textPri }}
+                  ></i>
+                </div>
+
+                {reviewDetailsOpen && (() => {
+                  const validSkus = form.skus.filter(s => s.value.trim());
+
+                  const formatMonthShort = (d) => {
+                    if (!d) return "—";
+                    const [y, m] = d.split("-");
+                    return `${MONTH_NAMES[parseInt(m, 10) - 1]}/${String(y).slice(2)}`;
+                  };
+
+                  // Quadradinho de mês (produção/vendas), cor varia por tipo
+                  const MonthSquare = ({ label, value, tone }) => {
+                    const hasValue = Number(value) > 0;
+                    const bg = hasValue
+                      ? (tone === "prod" ? B.blueBg : "#dff5e6")
+                      : "#f1f1f1";
+                    const fg = hasValue
+                      ? (tone === "prod" ? B.blue : B.textGreen)
+                      : "#999";
+                    return (
+                      <div style={{
+                        borderRadius: 4, backgroundColor: bg,
+                        padding: "5px 4px", textAlign: "center"
+                      }}>
+                        <div style={{ fontSize: 9, color: fg }}>{label}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: fg }}>{value || 0}</div>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 18, marginTop: 12 }}>
+                      {validSkus.map(sku => {
+                        const prodStart = form.productionStartDateBySku[sku.id] || "";
+                        const salesStart = form.salesStartDateBySku[sku.id] || "";
+                        const prodMonths = form.productionMonthsBySku[sku.id] || emptyMonthValues();
+                        const salesMonths = form.salesMonthsBySku[sku.id] || emptyMonthValues();
+                        const skuCountries = sku.countries || [];
+
+                        return (
+                          <div key={sku.id} style={{
+                            backgroundColor: B.bg, padding: "12px 14px",
+                            borderRadius: 4, border: `1px solid ${B.border}`,
+                            borderLeft: `3px solid ${B.blue}`
+                          }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: B.textPri, marginBottom: 12 }}>
+                              SKU: <span style={{ color: B.blue }}>{sku.value}</span>
+                            </div>
+
+                            {/* Produção */}
+                            <div style={{ marginBottom: 14 }}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: B.textPri, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Produção
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(46px, 1fr))", gap: 6 }}>
+                                {prodMonths.map((val, i) => (
+                                  <MonthSquare key={i} label={getMonthLabel(prodStart, i)} value={val} tone="prod" />
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Vendas */}
+                            <div style={{ marginBottom: skuCountries.length > 0 ? 14 : 0 }}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: B.textPri, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                Vendas
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(46px, 1fr))", gap: 6 }}>
+                                {salesMonths.map((val, i) => (
+                                  <MonthSquare key={i} label={getMonthLabel(salesStart, i)} value={val} tone="sales" />
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* MAV / SOL por país */}
+                            {skuCountries.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: B.textPri, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                  MAV / SOL por país
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+                                  {skuCountries.map(code => {
+                                    const countryObj = COUNTRIES.find(c => c.code === code);
+                                    const countryLabel = countryObj ? countryObj.label : code;
+                                    const mav = form.mavDates?.[sku.id]?.[code];
+                                    const sol = form.solDates?.[sku.id]?.[code];
+                                    return (
+                                      <div key={code} style={{
+                                        border: `1px solid ${B.border}`, borderRadius: 4,
+                                        padding: "10px 12px"
+                                      }}>
+                                        <div style={{ fontSize: 12, color: B.textPri, marginBottom: 8 }}>{countryLabel}</div>
+                                        <div style={{ display: "flex", gap: 6 }}>
+                                          <div style={{ flex: 1, backgroundColor: B.blueBg, borderRadius: 4, padding: "6px 8px", textAlign: "center" }}>
+                                            <div style={{ fontSize: 10, color: B.blue }}>mav</div>
+                                            <div style={{ fontSize: 13, fontWeight: 600, color: B.blue }}>{formatMonthShort(mav)}</div>
+                                          </div>
+                                          <div style={{ flex: 1, backgroundColor: sol ? "#dff5e6" : "#f1f1f1", borderRadius: 4, padding: "6px 8px", textAlign: "center" }}>
+                                            <div style={{ fontSize: 10, color: sol ? B.textGreen : "#999" }}>sol</div>
+                                            <div style={{ fontSize: 13, fontWeight: 600, color: sol ? B.textGreen : "#999" }}>{formatMonthShort(sol)}</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               <ReviewRow label="OM1% Target" value={`${parseFloat(form.om1Target || 0).toFixed(1)}%`} />
