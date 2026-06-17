@@ -148,11 +148,27 @@ function formatMonthYear(startDate, idx) {
 
 const emptyMonthValues = () => Array(12).fill("");
 
+
+function parseSkuPasteList(text) {
+  if (!text || !text.trim()) return null;
+  const cleaned = text.trim();
+  let parts;
+  if (cleaned.includes("\t"))        parts = cleaned.split("\t");
+  else if (cleaned.includes("\n"))   parts = cleaned.split("\n");
+  else if (cleaned.includes(";"))    parts = cleaned.split(";");
+  else parts = [cleaned];
+  return parts
+    .map(p => p.trim())
+    .filter(p => p.length > 0);
+}
+
+
 function parseExcelPaste(text) {
   if (!text || !text.trim()) return null;
   const cleaned = text.trim();
   let parts;
   if (cleaned.includes("\t"))      parts = cleaned.split("\t");
+  else if (cleaned.includes("\n")) parts = cleaned.split("\n");
   else if (cleaned.includes(";"))  parts = cleaned.split(";");
   else if (cleaned.includes(","))  parts = cleaned.split(",");
   else return null;
@@ -181,7 +197,7 @@ function createInitialState() {
 
 const STEPS = ["Projeto", "Versões", "SKUs", "Produção", "Vendas", "OM1 Target", "RuQ Target", "Datas", "Revisão"];
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwc2yACEAkMD5T4XOWLtutiHaPDPEwDFa8K8cMfTOyWmIkQmchepOmM7NxmAArORjJX/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxUjYER4vtKf8GYDPNKjxHpx-DDcD7Exl8HAEC23S-wrxBlMI_KUrIY1cGppmJCs64Q/exec";
 
 // ── Bosch Logo SVG ─────────────────────────────────────────────
 function BoschLogo({ height = 22 }) {
@@ -344,6 +360,56 @@ function ProjectDataCollector() {
     });
   };
 
+  const handleSkuPaste = (e, skuId, versionId) => {
+  const text = e.clipboardData.getData("text");
+  const values = parseSkuPasteList(text);
+  if (!values || values.length < 2) return; // deixa colagem normal de 1 valor passar
+  e.preventDefault();
+
+  setForm(f => {
+    const versionSkus = f.skus.filter(s => s.versionId === versionId);
+    const startIdx = versionSkus.findIndex(s => s.id === skuId);
+    if (startIdx === -1) return f;
+
+    let updatedSkus = [...f.skus];
+    let newProdDates = { ...f.productionStartDateBySku };
+    let newProdMonths = { ...f.productionMonthsBySku };
+    let newSalesDates = { ...f.salesStartDateBySku };
+    let newSalesMonths = { ...f.salesMonthsBySku };
+
+    values.forEach((rawVal, i) => {
+      const maskedVal = maskSku(rawVal);
+      const targetPos = startIdx + i;
+
+      if (targetPos < versionSkus.length) {
+        // preenche campo existente
+        const targetId = versionSkus[targetPos].id;
+        updatedSkus = updatedSkus.map(s => s.id === targetId ? { ...s, value: maskedVal } : s);
+      } else {
+        // cria novo campo
+        const newId = Date.now() + i;
+        updatedSkus.push({ id: newId, versionId, value: maskedVal, countries: [] });
+        newProdDates[newId] = "";
+        newProdMonths[newId] = emptyMonthValues();
+        newSalesDates[newId] = "";
+        newSalesMonths[newId] = emptyMonthValues();
+      }
+    });
+
+    return {
+      ...f,
+      skus: updatedSkus,
+      productionStartDateBySku: newProdDates,
+      productionMonthsBySku: newProdMonths,
+      salesStartDateBySku: newSalesDates,
+      salesMonthsBySku: newSalesMonths,
+    };
+  });
+
+  setPasteSuccess({ type: "sku", skuId });
+  setTimeout(() => setPasteSuccess(null), 2000);
+};
+
   const handleMonthPaste = (e, type, skuId, startIdx) => {
     const text = e.clipboardData.getData("text");
     const values = parseExcelPaste(text);
@@ -503,7 +569,7 @@ function ProjectDataCollector() {
     if (activeId && validSkus.some(s => s.id === activeId)) return activeId;
     return validSkus[0].id;
   };
-
+  
   // ── Submit ───────────────────────────────────────────────────
   const handleSubmit = async () => {
     const project = { ...form, id: Date.now() };
@@ -516,6 +582,8 @@ function ProjectDataCollector() {
 
     skusToProcess.forEach(sku => {
       const versionData = project.versions.find(v => v.id === sku.versionId) || {};
+      const versionLabel = [versionData.type, versionData.packaging].filter(Boolean).join(" - ");
+
       const prodMonths = project.productionMonthsBySku[sku.id] || emptyMonthValues();
       const salesMonths = project.salesMonthsBySku[sku.id] || emptyMonthValues();
       const prodStartDate = (project.productionStartDateBySku && project.productionStartDateBySku[sku.id]) || "";
@@ -525,17 +593,24 @@ function ProjectDataCollector() {
       countriesToProcess.forEach(countryCode => {
         const mavDateStr = project.mavDates?.[sku.id]?.[countryCode] || "";
         const solDateStr = project.solDates?.[sku.id]?.[countryCode] || "";
+        const mavVolume = project.mavVolumes?.[sku.id]?.[countryCode];
+
         for (let i = 0; i < 12; i++) {
           rows.push([
-            project.projectName, sku.value,
-            formatMonthYear(prodStartDate, i), prodMonths[i] ? Number(prodMonths[i]) : 0,
-            formatMonthYear(salesStartDate, i), salesMonths[i] ? Number(salesMonths[i]) : 0,
-            project.om1Target ? Number(project.om1Target) / 100 : "",
-            project.ruqTarget ? Number(project.ruqTarget) / 100 : "",
-            new Date().toLocaleDateString("pt-BR"),
-            new Date().toLocaleDateString("pt-BR"),
-            countryCode, mavDateStr, solDateStr,
-            versionData.type || "", versionData.packaging || ""
+            project.projectName,                                          // A: Project Execution
+            versionLabel,                                                 // B: Versão
+            sku.value,                                                    // C: SKU
+            formatMonthYear(prodStartDate, i),                            // D: Mês Ref. Produção
+            prodMonths[i] ? Number(prodMonths[i]) : 0,                    // E: Plano Produção
+            formatMonthYear(salesStartDate, i),                           // F: Mês Ref. Vendas
+            salesMonths[i] ? Number(salesMonths[i]) : 0,                  // G: Venda Planejada
+            project.om1Target ? Number(project.om1Target) / 100 : "",     // H: OM1% Target
+            project.ruqTarget ? Number(project.ruqTarget) / 100 : "",     // I: RuQ Target
+            mavVolume ? Number(mavVolume) : "",                           // J: Volume MAV
+            new Date().toLocaleDateString("pt-BR"),                       // K: Data Cadastro
+            countryCode,                                                  // L: País
+            mavDateStr,                                                   // M: DATA MAV PLAN
+            solDateStr                                                    // N: DATA SOL PLAN
           ]);
         }
       });
@@ -892,6 +967,7 @@ function ProjectDataCollector() {
                                 type="text"
                                 value={sku.value}
                                 onChange={e => updateSku(sku.id, "value", maskSku(e.target.value))}
+                                onPaste={e => handleSkuPaste(e, sku.id, version.id)}
                                 placeholder="SKU — ex: 0601.9N4.3E1"
                                 maxLength={12}
                                 style={{ ...inputBase, flex: 1 }}
@@ -1140,7 +1216,7 @@ function ProjectDataCollector() {
           {/* STEP 6: RuQ Target */}
           {step === 6 && (
             <div>
-              <label style={labelStyle}>RuQ% Target</label>
+              <label style={labelStyle}>RuQ Target</label>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
                 <input
                   type="number" min="0" max="100" step="0.1"
