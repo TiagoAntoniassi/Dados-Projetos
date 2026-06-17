@@ -787,14 +787,8 @@ function ProjectDataCollector() {
         boxShadow: "0 -2px 8px rgba(0,0,0,0.35)",
         zIndex: 2
       }}>
-        <img
-          src="https://upload.wikimedia.org/wikipedia/commons/1/16/Bosch-logo.svg"
-          alt="Bosch"
-          style={{ height: 16, backgroundColor: "white", padding: "2px 8px", borderRadius: 8 }}
-        />
-        <span style={{ fontSize: 11, color: B.textTer }}>
-          © {new Date().getFullYear()} — Cadastro de Projeto
-        </span>
+       
+        
       </div>  
 
         {/* ── Page title ── */}
