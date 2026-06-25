@@ -37,8 +37,8 @@ const VERSION_TYPES = [
 ];
 
 const PACKAGING_TYPES = [
-  "Carton box standard", "Carton box L-Boxx-ready", "Standard case",
-  "Standard case w/sleeve", "L-Case", "L-Case w/sleeve"
+  "Carton box", "Standard case",
+  "Carrying case", "Aluminum-case",
 ];
 
 // ── Bosch palette ──────────────────────────────────────────────
