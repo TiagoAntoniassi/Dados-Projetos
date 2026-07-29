@@ -28,7 +28,8 @@ const COUNTRIES = [
   { code: "UY", label: "🇺🇾 Uruguai" },
   { code: "PE", label: "🇵🇪 Peru" },
   { code: "BO", label: "🇧🇴 Bolivia" },
-  { code: "CR", label: "🇨🇷 Costa Rica" }
+  { code: "CR", label: "🇨🇷 Costa Rica" },
+  { code: "CAM", label: "Panamá" },
 ];
 
 const VERSION_TYPES = [
