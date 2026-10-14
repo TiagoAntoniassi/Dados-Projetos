@@ -189,14 +189,13 @@ function createInitialState() {
     salesStartDateBySku: { [firstSkuId]: "" },
     salesMonthsBySku: { [firstSkuId]: emptyMonthValues() },
     om1Target: "",
-    ruqTarget: "",
     mavDates: {},
     solDates: {},
     mavVolumes: {},
   };
 }
 
-const STEPS = ["Projeto", "Versões", "SKUs", "Produção", "Vendas", "OM1 Target", "RuQ Target", "Datas", "Revisão"];
+const STEPS = ["Projeto", "Versões", "SKUs", "Produção", "Vendas", "OM1 Target", "Datas", "Revisão"];
 
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxUjYER4vtKf8GYDPNKjxHpx-DDcD7Exl8HAEC23S-wrxBlMI_KUrIY1cGppmJCs64Q/exec";
 
@@ -560,7 +559,6 @@ function ProjectDataCollector() {
     if (step === 3) return form.skus.filter(s => s.value.trim()).every(s => form.productionStartDateBySku[s.id]);
     if (step === 4) return form.skus.filter(s => s.value.trim()).every(s => form.salesStartDateBySku[s.id]);
     if (step === 5) return form.om1Target !== "";
-    if (step === 6) return form.ruqTarget !== "";
     return true;
   };
 
@@ -606,7 +604,7 @@ function ProjectDataCollector() {
             formatMonthYear(salesStartDate, i),                           // F: Mês Ref. Vendas
             salesMonths[i] ? Number(salesMonths[i]) : 0,                  // G: Venda Planejada
             project.om1Target ? Number(project.om1Target) / 100 : "",     // H: OM1% Target
-            project.ruqTarget ? Number(project.ruqTarget) / 100 : "",     // I: RuQ Target
+            "",     // I: RuQ Target
             mavVolume ? Number(mavVolume) : "",                           // J: Volume MAV
             new Date().toLocaleDateString("pt-BR"),                       // K: Data Cadastro
             countryCode,                                                  // L: País
@@ -1207,27 +1205,8 @@ function ProjectDataCollector() {
             </div>
           )}
 
-
-          {/* STEP 6: RuQ Target */}
-          {step === 6 && (
-            <div>
-              <label style={labelStyle}>RuQ Target</label>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                <input
-                  type="number" min="0" max="100" step="0.1"
-                  value={form.ruqTarget}
-                  onChange={e => update("ruqTarget", e.target.value)}
-                  placeholder="Ex: 39.2"
-                  style={{ ...inputBase, width: 160 }}
-                  autoFocus
-                />
-                <span style={{ fontSize: 16, color: B.textSec, fontWeight: 700 }}>%</span>
-              </div>
-            </div>
-          )}
-
           {/* STEP 7: MAV / SOL dates */}
-          {step === 7 && (() => {
+          {step === 6 && (() => {
             const validSkus = form.skus.filter(s => s.value.trim());
             if (validSkus.length === 0 || validSkus.every(s => !s.countries || s.countries.length === 0)) {
               return (
@@ -1310,7 +1289,7 @@ function ProjectDataCollector() {
           })()}
 
            {/* STEP 8: Review */}
-          {step === 8 && (
+          {step === 7 && (
             <div>
               <h3 style={{ margin: "0 0 1rem", fontSize: 15, fontWeight: 700, color: B.textPri }}>
                 Revisão dos dados
@@ -1472,7 +1451,6 @@ function ProjectDataCollector() {
               </div>
 
               <ReviewRow label="OM1% Target" value={`${parseFloat(form.om1Target || 0).toFixed(1)}%`} />
-              <ReviewRow label="RuQ% Target" value={`${parseFloat(form.ruqTarget || 0).toFixed(1)}%`} />
             </div>
           )}
         </div>
