@@ -34,7 +34,7 @@ const COUNTRIES = [
 
 const VERSION_TYPES = [
   "Solo (Cordless)", "Basica (Corded)", "Basica + AC (Corded)",
-  "Kit 1Bat", "Kit 2Bat", "Kit 1Bat + AC", "Kit 2Bat + AC"
+  "Kit 1Bat", "Kit 2Bat", "Kit 1Bat + AC", "Kit 2Bat + AC","Outros"
 ];
 
 const PACKAGING_TYPES = [
